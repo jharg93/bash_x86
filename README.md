@@ -72,12 +72,12 @@ eg run ./86json.sh 00.json
 | 34 | ✅ Pass | 34 XOR rAL Ib |
 | 35 | ✅ Pass | 35 XOR rvAX Iv |
 | 37 | ❌ Fail | 37 AAA   |
-| 38 | ❌ Fail | 38 CMP Eb Gb |
-| 39 | ❌ Fail | 39 CMP Ev Gv |
-| 3A | ❌ Fail | 3A CMP Gb Eb |
-| 3B | ❌ Fail | 3B CMP Gv Ev |
-| 3C | ❌ Fail | 3C CMP rAL Ib |
-| 3D | ❌ Fail | 3D CMP rvAX Iv |
+| 38 | ✅ Pass | 38 CMP Eb Gb |
+| 39 | ✅ Pass | 39 CMP Ev Gv |
+| 3A | ✅ Pass | 3A CMP Gb Eb |
+| 3B | ✅ Pass | 3B CMP Gv Ev |
+| 3C | ✅ Pass | 3C CMP rAL Ib |
+| 3D | ✅ Pass | 3D CMP rvAX Iv |
 | 3F | ❌ Fail | 3F AAS   |
 | 40 | ✅ Pass | 40 INC gv  |
 | 41 | ✅ Pass | 41 INC gv  |
@@ -150,7 +150,7 @@ eg run ./86json.sh 00.json
 | 80.4 | ✅ Pass | 80.4 AND Eb Ib |
 | 80.5 | ✅ Pass | 80.5 SUB Eb IB |
 | 80.6 | ✅ Pass | 80.6 XOR Eb Ib |
-| 80.7 | ❌ Fail | 80.7 CMP Eb Ib |
+| 80.7 | ✅ Pass | 80.7 CMP Eb Ib |
 | 81.0 | ✅ Pass | 81.0 ADD Ev Iv |
 | 81.1 | ✅ Pass | 81.1 OR Ev Iv |
 | 81.2 | ✅ Pass | 81.2 ADC Ev Iv |
@@ -158,7 +158,7 @@ eg run ./86json.sh 00.json
 | 81.4 | ✅ Pass | 81.4 AND Ev Iv |
 | 81.5 | ✅ Pass | 81.5 SUB Eb IB |
 | 81.6 | ✅ Pass | 81.6 XOR Ev Iv |
-| 81.7 | ❌ Fail | 81.7 CMP Ev Iv |
+| 81.7 | ✅ Pass | 81.7 CMP Ev Iv |
 | 82.0 | ✅ Pass | 82.0 ADD Eb Ib |
 | 82.1 | ✅ Pass | 82.1 OR Eb Ib |
 | 82.2 | ✅ Pass | 82.2 ADC Eb Ib |
@@ -166,7 +166,7 @@ eg run ./86json.sh 00.json
 | 82.4 | ✅ Pass | 82.4 AND Eb Ib |
 | 82.5 | ✅ Pass | 82.5 SUB Eb IB |
 | 82.6 | ✅ Pass | 82.6 XOR Eb Ib |
-| 82.7 | ❌ Fail | 82.7 CMP Eb Ib |
+| 82.7 | ✅ Pass | 82.7 CMP Eb Ib |
 | 83.0 | ✅ Pass | 83.0 ADD Ev Sb |
 | 83.1 | ✅ Pass | 83.1 OR Ev Sb |
 | 83.2 | ✅ Pass | 83.2 ADC Ev Sb |
@@ -174,7 +174,7 @@ eg run ./86json.sh 00.json
 | 83.4 | ✅ Pass | 83.4 AND Ev Sb |
 | 83.5 | ✅ Pass | 83.5 SUB Eb IB |
 | 83.6 | ✅ Pass | 83.6 XOR Ev Sb |
-| 83.7 | ❌ Fail | 83.7 CMP Ev Sb |
+| 83.7 | ✅ Pass | 83.7 CMP Ev Sb |
 | 84 | ✅ Pass | 84 TEST Gb Eb |
 | 85 | ✅ Pass | 85 TEST Gv Ev |
 | 86 | ✅ Pass | 86 XCHG Gb Eb |
@@ -206,16 +206,16 @@ eg run ./86json.sh 00.json
 | A1 | ✅ Pass | A1 MOV rvAX Ov |
 | A2 | ✅ Pass | A2 MOV Ob rAL |
 | A3 | ✅ Pass | A3 MOV Ov rvAX |
-| A4 | ❌ Fail | A4 MOVS Yb Xb |
-| A5 | ❌ Fail | A5 MOVS Yv Xv |
+| A4 | ✅ Pass | A4 MOVS Yb Xb |
+| A5 | ✅ Pass | A5 MOVS Yv Xv |
 | A6 | ❌ Fail | A6 CMPS Xb Yb |
 | A7 | ❌ Fail | A7 CMPS Xv Yv |
 | A8 | ✅ Pass | A8 TEST rAL Ib |
 | A9 | ✅ Pass | A9 TEST rvAX Iv |
-| AA | ❌ Fail | AA STOS Yb rAL |
-| AB | ❌ Fail | AB STOS Yv rvAX |
-| AC | ❌ Fail | AC LODS rAL Xb |
-| AD | ❌ Fail | AD LODS rvAX Xv |
+| AA | ✅ Pass | AA STOS Yb rAL |
+| AB | ✅ Pass | AB STOS Yv rvAX |
+| AC | ✅ Pass | AC LODS rAL Xb |
+| AD | ✅ Pass | AD LODS rvAX Xv |
 | AE | ❌ Fail | AE SCAS rAL Yb |
 | AF | ❌ Fail | AF SCAS rvAX Yv |
 | B0 | ✅ Pass | B0 MOV gb Ib |
@@ -303,8 +303,8 @@ eg run ./86json.sh 00.json
 | E6 | ✅ Pass | E6 OUT Ib rAL |
 | E7 | ❌ Fail | E7 OUT Iv rvAX |
 | E8 | ❌ Fail | E8 CALL Jv  |
-| EC | ❌ Fail | EC IN rAL rDX |
-| ED | ❌ Fail | ED IN rvAX rDX |
+| E9 | ❌ Fail | E9 JMP Jv  |
+| EA | ✅ Pass | EA JMP Ap  |
 | EE | ✅ Pass | EE OUT rDX rAL |
 | EF | ✅ Pass | EF OUT rDX rvAX |
 | F5 | ✅ Pass | F5 CMC   |
@@ -331,7 +331,7 @@ eg run ./86json.sh 00.json
 | FC | ✅ Pass | FC CLD   |
 | FD | ✅ Pass | FD STD   |
 | FE.0 | ✅ Pass | FE.0 INC Eb |
-| FE.1 | ❌ Fail | FE.1 DEC Eb |
+| FE.1 | ✅ Pass | FE.1 DEC Eb |
 | FF.0 | ✅ Pass | FF.0 INC Ev |
 | FF.1 | ✅ Pass | FF.1 DEC Ev |
 | FF.2 | ❌ Fail | FF.2 CALL Ev |

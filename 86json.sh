@@ -5,7 +5,7 @@
 # Load x86 core
 . x86.sh load
 
-isjmp=0
+verbose=0
 
 # return register index
 regindex() {
@@ -48,7 +48,9 @@ check() {
     local key=$1 value=$2 ini=$3
 
     index=$(regindex "$key")
-#    printf "set: $key $index %x\n" $value
+    if [ $verbose != 0 ]; then
+	printf "set: $key $index %x\n" $value
+    fi
     if [ "$index" -lt 0 ]; then
 	return
     fi
@@ -99,7 +101,9 @@ parsemem() {
 	if [ -z "$mv" ]; then
 	    mv=0
 	fi
-#	printf "$addr <- %x [${X86_MEM[$addr]}]\n" $val
+	if [ $verbose != 0 ] ; then
+	    printf "$addr <- %x [${X86_MEM[$addr]}]\n" $val
+	fi
 	if [ $ini -eq 1 ]; then
 	    X86_MEM[$addr]=$val
 	elif [ "$mv" -ne "$val" ]; then
@@ -130,16 +134,15 @@ loadfile() {
 	# Loop while prefix set
 	pfx=1
 	seg=""
+	rep=0
 	osize=0xffff
 	mask=0xffff
 	while [ $pfx -eq 1 ]; do
 	    pfx=0
-	    fetch8
-	    opcode=$IR
+	    fetch8 opcode
 	    printf "opcode is ${opcode} %x\n" ${X86_REGS[15]}
 	    decode $opcode
 	done
-#	fetch8
 	N=$((0x1|0x4|0x10|0x40|0x80|0x200|0x400|0x800))
 	nf=$(((OF << 11) | (DF << 10) | (IF << 9) |
 		  (SF << 7) | (ZF << 6) | (AF << 4) |
@@ -152,5 +155,12 @@ loadfile() {
 	parsemem "$j" 0 ".final.ram"
     done < <(jq -c ".[]" $file)
 }
+
+while getopts "v" opt; do
+    case "$opt" in
+	v) verbose=1 ;;
+    esac
+done
+shift $((OPTIND - 1))
 
 loadfile $1
