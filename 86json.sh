@@ -5,6 +5,8 @@
 # Load x86 core
 . x86.sh load
 
+isjmp=0
+
 # return register index
 regindex() {
     case $1 in
@@ -26,6 +28,20 @@ regindex() {
     esac
 }
 
+fstr() {
+    local f=$1
+    local out=""
+    (( f & (1<<11) )) && out+="o" || out+="."
+    (( f & (1<<10) )) && out+="d" || out+="."
+    (( f & (1<<9)  )) && out+="i" || out+="."
+    (( f & (1<<7)  )) && out+="s" || out+="."
+    (( f & (1<<6)  )) && out+="z" || out+="."
+    (( f & (1<<4)  )) && out+="a" || out+="."
+    (( f & (1<<2)  )) && out+="p" || out+="."
+    (( f & 1       )) && out+="c" || out+="."
+    echo $out
+}
+
 # Initial: Load register values
 # Final: Verify registers are expected
 check() {
@@ -42,8 +58,16 @@ check() {
     elif [[ "$rv" -ne "$value" ]] ; then
 	case $key in
 	    # hack. ignore jumps/calls/flags
-	    ip|flags) ;;
-	    *) printf "mismatch: $key $index $value [got: $rv %x]\n" $rv ;;
+	    flags)
+		value=$((value & ~0x10))
+		rv=$((rv & ~0x10))
+		if [[ "$rv" -ne "$value" ]] ; then
+		    printf "flags mismatch %x %s %x %s\n" $value $(fstr $value) $rv $(fstr $rv)
+		fi
+		;;
+	    *)
+		printf "mismatch: $key $index $value [got: $rv %x]\n" $rv
+		;;
 	esac
     fi
 }
@@ -104,7 +128,7 @@ loadfile() {
 	IF=$(((X86_REGS[14] >> 9) & 1))
 	DF=$(((X86_REGS[14] >> 10) & 1))
 	OF=$(((X86_REGS[14] >> 11) & 1))
-	printf " %x SF=$SF ZF=$ZF AF=$AF PF=$PF CF=$CF DF=$DF IF=$IF seg=$seg\n" ${X86_REGS[14]}
+	printf " %x OF=$OF SF=$SF ZF=$ZF AF=$AF PF=$PF CF=$CF DF=$DF IF=$IF seg=$seg\n" ${X86_REGS[14]}
 
 	# Loop while prefix set
 	pfx=1
@@ -118,6 +142,7 @@ loadfile() {
 	    printf "opcode is ${opcode} %x\n" ${X86_REGS[15]}
 	    decode $opcode
 	done
+#	fetch8
 	N=$((0x1|0x4|0x10|0x40|0x80|0x200|0x400|0x800))
 	nf=$(((OF << 11) | (DF << 10) | (IF << 9) |
 		  (SF << 7) | (ZF << 6) | (AF << 4) |
