@@ -127,22 +127,22 @@ eg run ./86json.sh 00.json
 | 6D | ❌ Fail | none |
 | 6E | ❌ Fail | none |
 | 6F | ❌ Fail | none |
-| 70 | ❌ Fail | 70 JCC Jb  |
-| 71 | ❌ Fail | 71 JCC Jb  |
-| 72 | ❌ Fail | 72 JCC Jb  |
-| 73 | ❌ Fail | 73 JCC Jb  |
-| 74 | ❌ Fail | 74 JCC Jb  |
-| 75 | ❌ Fail | 75 JCC Jb  |
-| 76 | ❌ Fail | 76 JCC Jb  |
-| 77 | ❌ Fail | 77 JCC Jb  |
-| 78 | ❌ Fail | 78 JCC Jb  |
-| 79 | ❌ Fail | 79 JCC Jb  |
-| 7A | ❌ Fail | 7A JCC Jb  |
-| 7B | ❌ Fail | 7B JCC Jb  |
-| 7C | ❌ Fail | 7C JCC Jb  |
-| 7D | ❌ Fail | 7D JCC Jb  |
-| 7E | ❌ Fail | 7E JCC Jb  |
-| 7F | ❌ Fail | 7F JCC Jb  |
+| 70 | ✅ Pass | 70 JCC Jb  |
+| 71 | ✅ Pass | 71 JCC Jb  |
+| 72 | ✅ Pass | 72 JCC Jb  |
+| 73 | ✅ Pass | 73 JCC Jb  |
+| 74 | ✅ Pass | 74 JCC Jb  |
+| 75 | ✅ Pass | 75 JCC Jb  |
+| 76 | ✅ Pass | 76 JCC Jb  |
+| 77 | ✅ Pass | 77 JCC Jb  |
+| 78 | ✅ Pass | 78 JCC Jb  |
+| 79 | ✅ Pass | 79 JCC Jb  |
+| 7A | ✅ Pass | 7A JCC Jb  |
+| 7B | ✅ Pass | 7B JCC Jb  |
+| 7C | ✅ Pass | 7C JCC Jb  |
+| 7D | ✅ Pass | 7D JCC Jb  |
+| 7E | ✅ Pass | 7E JCC Jb  |
+| 7F | ✅ Pass | 7F JCC Jb  |
 | 80.0 | ✅ Pass | 80.0 ADD Eb Ib |
 | 80.1 | ✅ Pass | 80.1 OR Eb Ib |
 | 80.2 | ✅ Pass | 80.2 ADC Eb Ib |
@@ -197,7 +197,7 @@ eg run ./86json.sh 00.json
 | 97 | ✅ Pass | 97 XCHG gv rvAX |
 | 98 | ✅ Pass | 98 CBW   |
 | 99 | ✅ Pass | 99 CWD   |
-| 9A | ❌ Fail | 9A CALL Ap  |
+| 9A | ✅ Pass | 9A CALL Ap  |
 | 9C | ❌ Fail | 9C PUSHF   |
 | 9D | ❌ Fail | 9D POPF   |
 | 9E | ❌ Fail | 9E SAHF   |
@@ -237,15 +237,15 @@ eg run ./86json.sh 00.json
 | C0 | ❌ Fail | C0 GRP2 Eb Ib |
 | C1 | ❌ Fail | C1 GRP2 Ev Ib |
 | C2 | ❌ Fail | C2 RET Iw  |
-| C3 | ❌ Fail | C3 RET   |
-| C4 | ❌ Fail | C4 LES Gv Mp |
-| C5 | ❌ Fail | C5 LDS Gv Mp |
+| C3 | ✅ Pass | C3 RET   |
+| C4 | ✅ Pass | C4 LES Gv Mp |
+| C5 | ✅ Pass | C5 LDS Gv Mp |
 | C6 | ✅ Pass | C6 MOV Eb Ib |
 | C7 | ✅ Pass | C7 MOV Ev Iv |
 | C8 | ❌ Fail | none |
 | C9 | ❌ Fail | none |
 | CA | ❌ Fail | CA RETF Iw  |
-| CB | ❌ Fail | CB RETF   |
+| CB | ✅ Pass | CB RETF   |
 | CC | ❌ Fail | CC INT i3  |
 | CD | ❌ Fail | CD INT Ib  |
 | CE | ❌ Fail | CE INTO   |
@@ -294,17 +294,20 @@ eg run ./86json.sh 00.json
 | DD | ❌ Fail | none |
 | DE | ❌ Fail | none |
 | DF | ❌ Fail | none |
-| E0 | ❌ Fail | E0 LOOPNZ Jb  |
-| E1 | ❌ Fail | E1 LOOPZ Jb  |
-| E2 | ❌ Fail | E2 LOOP Jb  |
+| E0 | ✅ Pass | E0 LOOPNZ Jb  |
+| E1 | ✅ Pass | E1 LOOPZ Jb  |
+| E2 | ✅ Pass | E2 LOOP Jb  |
 | E3 | ✅ Pass | E3 JCXZ Jb  |
-| E4 | ❌ Fail | E4 IN rAL Ib |
-| E5 | ❌ Fail | E5 IN rvAX Ib |
+| E4 | ✅ Pass | E4 IN rAL Ib |
+| E5 | ✅ Pass | E5 IN rvAX Ib |
 | E6 | ✅ Pass | E6 OUT Ib rAL |
 | E7 | ❌ Fail | E7 OUT Iv rvAX |
-| E8 | ❌ Fail | E8 CALL Jv  |
-| E9 | ❌ Fail | E9 JMP Jv  |
+| E8 | ✅ Pass | E8 CALL Jv  |
+| E9 | ✅ Pass | E9 JMP Jv  |
 | EA | ✅ Pass | EA JMP Ap  |
+| EB | ✅ Pass | EB JMP Jb  |
+| EC | ✅ Pass | EC IN rAL rDX |
+| ED | ✅ Pass | ED IN rvAX rDX |
 | EE | ✅ Pass | EE OUT rDX rAL |
 | EF | ✅ Pass | EF OUT rDX rvAX |
 | F5 | ✅ Pass | F5 CMC   |
@@ -334,10 +337,9 @@ eg run ./86json.sh 00.json
 | FE.1 | ✅ Pass | FE.1 DEC Eb |
 | FF.0 | ✅ Pass | FF.0 INC Ev |
 | FF.1 | ✅ Pass | FF.1 DEC Ev |
-| FF.2 | ❌ Fail | FF.2 CALL Ev |
+| FF.2 | ✅ Pass | FF.2 CALL Ev |
 | FF.3 | ❌ Fail | FF.3 CALL Mp |
 | FF.4 | ✅ Pass | FF.4 JMP Ev |
-| FF.5 | ❌ Fail | FF.5 JMP Mp |
+| FF.5 | ✅ Pass | FF.5 JMP Mp |
 | FF.6 | ❌ Fail | FF.6 PUSH Ev |
 | FF.7 | ❌ Fail | none |
-
