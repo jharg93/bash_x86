@@ -6,6 +6,7 @@ The script works well enough to pass many of the tests from:
 https://github.com/SingleStepTests/8088/tree/main/v2
 
 | Opcode | Status |
+| ------ | ------ |
 | 00 | ✅ Pass |
 | 01 | ✅ Pass |
 | 02 | ✅ Pass |
