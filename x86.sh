@@ -141,11 +141,12 @@ testcond() {
 }
 
 setop() {
-  local op=$1 mnem=$2 o1=$3 o2=$4 enc=$5
-  X86_MNEM[$op]="$mnem"
-  X86_OP1[$op]="$o1"
-  X86_OP2[$op]="$o2"
-  X86_ENC[$op]="$enc"
+    local op=$1 mnem=$2 o1=$3 o2=$4 enc=$5
+#    printf "seto %.2X $mnem $o1 $o2\n" $op
+    X86_MNEM[$op]="$mnem"
+    X86_OP1[$op]="$o1"
+    X86_OP2[$op]="$o2"
+    X86_ENC[$op]="$enc"
 }
 
 # flags="odiszapc"
