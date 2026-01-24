@@ -121,14 +121,7 @@ loadfile() {
 	parsemem "$j" 1 ".initial.ram"
 
 	# Load Flags
-	CF=$(((X86_REGS[14] >> 0) & 1))
-	PF=$(((X86_REGS[14] >> 2) & 1))
-	AF=$(((X86_REGS[14] >> 4) & 1))
-	ZF=$(((X86_REGS[14] >> 6) & 1))
-	SF=$(((X86_REGS[14] >> 7) & 1))
-	IF=$(((X86_REGS[14] >> 9) & 1))
-	DF=$(((X86_REGS[14] >> 10) & 1))
-	OF=$(((X86_REGS[14] >> 11) & 1))
+	getflags
 	printf " %x OF=$OF SF=$SF ZF=$ZF AF=$AF PF=$PF CF=$CF DF=$DF IF=$IF seg=$seg\n" ${X86_REGS[14]}
 
 	# Loop while prefix set
@@ -143,12 +136,7 @@ loadfile() {
 	    printf "opcode is ${opcode} %x\n" ${X86_REGS[15]}
 	    decode $opcode
 	done
-	N=$((0x1|0x4|0x10|0x40|0x80|0x200|0x400|0x800))
-	nf=$(((OF << 11) | (DF << 10) | (IF << 9) |
-		  (SF << 7) | (ZF << 6) | (AF << 4) |
-		  (PF << 2) | 0x2 | CF))
-	X86_REGS[14]=$((X86_REGS[14] & ~N))
-	X86_REGS[14]=$((X86_REGS[14] | nf))
+	setflags
 
 	# Read final regso
 	parseregs "$j" 0 ".final.regs"

@@ -200,8 +200,8 @@ eg run ./86json.sh 00.json
 | 9A | ✅ Pass | 9A CALL Ap  |
 | 9C | ❌ Fail | 9C PUSHF   |
 | 9D | ❌ Fail | 9D POPF   |
-| 9E | ❌ Fail | 9E SAHF   |
-| 9F | ❌ Fail | 9F LAHF   |
+| 9E | ✅ Pass | 9E SAHF   |
+| 9F | ✅ Pass | 9F LAHF   |
 | A0 | ✅ Pass | A0 MOV rAL Ob |
 | A1 | ✅ Pass | A1 MOV rvAX Ov |
 | A2 | ✅ Pass | A2 MOV Ob rAL |

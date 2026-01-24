@@ -26,6 +26,26 @@ CF=0
 DF=0
 IF=0
 
+getflags() {
+    CF=$(((X86_REGS[14] >> 0) & 1))
+    PF=$(((X86_REGS[14] >> 2) & 1))
+    AF=$(((X86_REGS[14] >> 4) & 1))
+    ZF=$(((X86_REGS[14] >> 6) & 1))
+    SF=$(((X86_REGS[14] >> 7) & 1))
+    IF=$(((X86_REGS[14] >> 9) & 1))
+    DF=$(((X86_REGS[14] >> 10) & 1))
+    OF=$(((X86_REGS[14] >> 11) & 1))
+}
+
+setflags() {
+    N=$((0x1|0x4|0x10|0x40|0x80|0x200|0x400|0x800))
+    nf=$(((OF << 11) | (DF << 10) | (IF << 9) |
+	      (SF << 7) | (ZF << 6) | (AF << 4) |
+	      (PF << 2) | 0x2 | CF))
+    X86_REGS[14]=$((X86_REGS[14] & ~N))
+    X86_REGS[14]=$((X86_REGS[14] | nf))
+}
+
 # fetch byte from PC
 fetch8() {
     local __out=$1
@@ -40,21 +60,29 @@ fetch8() {
 # fetch word from PC
 fetch16() {
     local __out=$1
-    fetch8 LO
-    fetch8 HI
-    printf -v "$__out" "0x%.2x%.2x" $HI $LO
+    fetch8 FLO
+    fetch8 FHI
+    printf -v "$__out" "0x%.2x%.2x" $FHI $FLO
 }
 
 # fetchv
 fetchv() {
+    local LO=0 HI=0
     case $osize in
 	0xffff)
 	    fetch16 IR
 	    ;;
 	0xffffffff)
-	    fetch16 LO
-	    fetch16 HI
-	    IR=$(printf "0x%.4x%.4x" $HI $LO)
+	    fetch16 D0
+	    fetch16 D1
+	    printf -v IR "0x%.4x%.4x" $D1 $D0
+	    ;;
+	0xffffffffffffffff)
+	    fetch16 D0
+	    fetch16 D1
+	    fetch16 D2
+	    fetch16 D3
+	    printf -v IR "0x%.4x%.4x%.4x%.4x" $D3 $D2 $D1 $D0
 	    ;;
 	esac
 }
@@ -376,6 +404,25 @@ setop 0xff GRP5 Ev __ MRR # INC Ev/DEC Ev
 grpop 0xfe 3 Mp __
 grpop 0xff 5 Mp __
 
+# Get segment base
+getseg() {
+    local __out=$1
+    local vseg=$2
+    local oseg=$3
+    local lbl=$4
+    if [ -n "$oseg" ] ; then
+	vseg=$oseg
+    fi
+    case $vseg in
+	"seg 0") val=$(getreg 16 0xffff) ;;
+	"seg 1") val=$(getreg 17 0xffff) ;;
+	"seg 2") val=$(getreg 18 0xffff) ;;
+	"seg 3") val=$(getreg 19 0xffff) ;;
+	*) echo "no seg $vseg $lbl" ; exit 0 ;;
+    esac
+    printf -v "$__out" "0x%x" $val
+}
+
 # Create register object with current value
 mkreg() {
     local __out=$1
@@ -462,34 +509,20 @@ mkea() {
     fi
     
     # Segment override
-    if [ ! -z "$seg" ]; then
-	easeg="$seg"
-    fi
-    case $easeg in
-	"seg 0") val=$(getreg 16 0xffff) ;;
-	"seg 1") val=$(getreg 17 0xffff) ;;
-	"seg 2") val=$(getreg 18 0xffff) ;;
-	"seg 3") val=$(getreg 19 0xffff) ;;
-	*) echo "no seg" ; exit 0 ;;
-    esac
+    getseg val "$easeg" "$seg" "ea"
     printf -v "$__out" "mem $val 0x%x $mask $mm $rrr" $off
 }
 
+# String operations. ES:DI, DS:SI
+# strop var seg index mask
 strop() {
-    local __out=$1
-    local vs=$2 vo=$3 mask=$4
+    local __out=$1 vs=$2 vo=$3 mask=$4
 
     # if no overriding seg, default to DS
     if [[ -z $vs ]] ; then
 	vs="seg 3"
     fi
-    case $vs in
-	"seg 0") val=$(getreg 16 0xffff) ;;
-	"seg 1") val=$(getreg 17 0xffff) ;;
-	"seg 2") val=$(getreg 18 0xffff) ;;
-	"seg 3") val=$(getreg 19 0xffff) ;;
-	*) echo "no seg" ; exit 0 ;;
-    esac
+    getseg val "$vs" "" "strop"
 
     # Get Index
     local voff=$(getreg $vo 0xffff)
@@ -497,10 +530,13 @@ strop() {
     # Calculate delta
     delta=1
     [ $mask == 0xffff ] && delta=2
+    [ $mask == 0xffffffff ] && delta=4
+
+    # Check DF flag
     [ $DF != 0 ] && delta=$((-delta))
 
     # inc/dec index
-    setreg $vo $((voff + delta)) 0xffff
+    setreg $vo $((voff + delta)) $mask
 
     # Memory address
     printf -v "$__out" "mem 0x%.4x 0x%.4x 0x%.4x" $val $voff $mask
@@ -534,7 +570,7 @@ decarg() {
 	    printf -v "$__out" "imm $addr 0xff"
 	    ;;
 	Jv)
-	    fetchv IR
+	    fetchv
 	    printf -v "$__out" "imm 0x%x 0xffff" $((X86_REGS[15] + $IR))
 	    ;;
 	rCL) mkreg $__out 1 0xff ;;
@@ -546,6 +582,7 @@ decarg() {
 	Ib) fetch8 IR ; mkimm $__out $IR $mask ;;
 	Iv) fetchv ; mkimm $__out $IR $mask ;;
 	Sb)
+	    # signed byte
 	    fetch8 IR
 	    if [ $((IR & 0x80)) != 0 ]; then
 		IR=$((IR | 0xFF00))
@@ -592,10 +629,20 @@ execval() {
 	    local off=${oparg[2]}
 	    local base=${oparg[1]}
 	    local am=${oparg[3]}
-	    if [[ $am -eq 0xffff ]] ; then
-		read16 $base $off
-	    else
+	    if [[ $am -eq 0xff ]] ; then
 		read8 $base $off
+	    elif [[ $am -eq 0xffff ]] ; then
+		read16 $base $off
+	    elif [[ $am -eq 0xffffffff ]] ; then
+		ED0=$(read16 $base $((off + 0)))
+		ED1=$(read16 $base $((off + 2)))
+		printf "0x%.4x%.4x" $ED1 $ED0
+	    elif [[ $am -eq 0xffffffffffffffff ]] ; then
+		ED0=$(read16 $base $((off + 0)))
+		ED1=$(read16 $base $((off + 2)))
+		ED2=$(read16 $base $((off + 4)))
+		ED3=$(read16 $base $((off + 6)))
+		printf "0x%.4x%.4x%.4x%.4x" $ED3 $ED2 $ED1 $ED0
 	    fi
 	    ;;
 	seg)
@@ -623,10 +670,18 @@ execset() {
 	    local off=${oparg[2]}
 	    local base=${oparg[1]}
 	    local am=${oparg[3]}
-	    if [[ $am -eq 0xffff ]] ; then
-		write16 $base $off $val
-	    else
+	    if [[ $am -eq 0xff ]] ; then
 		write8 $base $off $val
+	    elif [[ $am -eq 0xffff ]] ; then
+		write16 $base $off $val
+	    elif [[ $am -eq 0xffffffff ]] ; then
+		write16 $base $((off + 0)) $((val & 0xFFFF))
+		write16 $base $((off + 2)) $(((val >> 16) & 0xFFFF))
+	    elif [[ $am -eq 0xffffffffffffffff ]] ; then
+		write16 $base $((off + 0)) $((val & 0xFFFF))
+		write16 $base $((off + 2)) $(((val >> 16) & 0xFFFF))
+		write16 $base $((off + 4)) $(((val >> 32) & 0xFFFF))
+		write16 $base $((off + 6)) $(((val >> 48) & 0xFFFF))
 	    fi
 	    ;;
 	seg)
@@ -666,8 +721,13 @@ aluop() {
     esac
 
     smask=$(execsz "$s1")
+    if [[ $smask -eq 0xffffffffffffffff ]] ; then
+	sgn=0x8000000000000000
+    else
+	sgn=$(printf "0x%x" $((smask - (smask >> 1))))
+    fi
     res=$((res & smask))
-    sgn=$(printf "0x%x" $((smask - (smask >> 1))))
+
     printf "result is:[$dest] [%d:%.4x] [%.4x] %.4x\n" $res $res $mask $sgn
     ZF=$((res == 0))
     SF=$(((res & sgn) != 0))
@@ -712,6 +772,7 @@ execop() {
     case $opfn in
 	MOVS | LODS | STOS)
 	    local v1="$(execval "$s2")"
+	    printf "osize=$osize $v1\n"
 	    execset "$s1" "$v1"
 	    if [[ $rep != 0 ]] ; then
 		local cx=$(getreg 1 $osize)
@@ -918,6 +979,18 @@ execop() {
 	    printf "popping.... $v1\n"
 	    execset "$s1" $v1
 	    ;;
+	LAHF)
+	    local ah=$(((SF << 7) | (ZF << 6) | (AF << 4) | (PF << 2) | 0x2 | CF))
+	    setreg 4 $ah 0xff
+	    ;;
+	SAHF)
+	    local ah=$(getreg 4 0xff)
+	    CF=$(((ah & 0x1) != 0))
+	    PF=$(((ah & 0x4) != 0))
+	    AF=$(((ah & 0x10) != 0))
+	    ZF=$(((ah & 0x40) != 0))
+	    SF=$(((ah & 0x80) != 0))
+	    ;;
 	IN)
 	    # hack return set bits
 	    execset "$s1" 0xffffffff
@@ -1032,5 +1105,3 @@ decode() {
 	echo "--- missing"
     fi
 }
-
-
