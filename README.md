@@ -175,8 +175,7 @@ https://github.com/SingleStepTests/8088/tree/main/v2
 | 8D | ✅ Pass | LEA Gv Mp |
 | 8E | ❌ Fail | MOV Sw Ew |
 | 8F | ❌ Fail | POP Ev __ |
-| 90 | ✅ Pass | NOP  
- XCHG gv rvAX |
+| 90 | ✅ Pass | NOP  |
 | 91 | ✅ Pass | XCHG gv rvAX |
 | 92 | ✅ Pass | XCHG gv rvAX |
 | 93 | ✅ Pass | XCHG gv rvAX |
