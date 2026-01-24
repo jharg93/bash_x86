@@ -7,6 +7,8 @@ https://github.com/SingleStepTests/8088/tree/main/v2
 
 eg run ./86json.sh 00.json
 
+✅ Pass
+
 | Opcode | Status | Mnemonic |
 | ------ | ------ | -------- |
 | 00 | ✅ Pass | ADD Eb Gb |
@@ -15,7 +17,7 @@ eg run ./86json.sh 00.json
 | 03 | ✅ Pass | ADD Gv Ev |
 | 04 | ✅ Pass | ADD rAL Ib |
 | 05 | ✅ Pass | ADD rvAX Iv |
-| 06 | ❌ Fail | PUSH rES  |
+| 06 | ✅ Pass | PUSH rES  |
 | 07 | ❌ Fail | POP rES  |
 | 08 | ✅ Pass | OR Eb Gb |
 | 09 | ✅ Pass | OR Ev Gv |
@@ -23,7 +25,7 @@ eg run ./86json.sh 00.json
 | 0B | ✅ Pass | OR Gv Ev |
 | 0C | ✅ Pass | OR rAL Ib |
 | 0D | ✅ Pass | OR rvAX Iv |
-| 0E | ❌ Fail | PUSH rCS  |
+| 0E | ✅ Pass | PUSH rCS  |
 | 0F | ❌ Fail | ----   |
 | 10 | ✅ Pass | ADC Eb Gb |
 | 11 | ✅ Pass | ADC Ev Gv |
@@ -31,7 +33,7 @@ eg run ./86json.sh 00.json
 | 13 | ✅ Pass | ADC Gv Ev |
 | 14 | ✅ Pass | ADC rAL Ib |
 | 15 | ✅ Pass | ADC rvAX Iv |
-| 16 | ❌ Fail | PUSH rSS  |
+| 16 | ✅ Pass | PUSH rSS  |
 | 17 | ❌ Fail | POP rSS  |
 | 18 | ✅ Pass | SBB Eb Gb |
 | 19 | ✅ Pass | SBB Ev Gv |
@@ -39,7 +41,7 @@ eg run ./86json.sh 00.json
 | 1B | ✅ Pass | SBB Gv Ev |
 | 1C | ✅ Pass | SBB rAL Ib |
 | 1D | ✅ Pass | SBB rvAX Iv |
-| 1E | ❌ Fail | PUSH rDS  |
+| 1E | ✅ Pass | PUSH rDS  |
 | 1F | ❌ Fail | POP rDS  |
 | 20 | ✅ Pass | AND Eb Gb |
 | 21 | ✅ Pass | AND Ev Gv |
@@ -192,10 +194,10 @@ eg run ./86json.sh 00.json
 | 9D | ❌ Fail | POPF   |
 | 9E | ✅ Pass | SAHF   |
 | 9F | ❌ Fail | LAHF   |
-| A0 | ❌ Fail | MOV rAL Ob |
-| A1 | ❌ Fail | MOV rvAX Ov |
-| A2 | ❌ Fail | MOV Ob rAL |
-| A3 | ❌ Fail | MOV Ov rvAX |
+| A0 | ✅ Pass | MOV rAL Ob |
+| A1 | ✅ Pass | MOV rvAX Ov |
+| A2 | ✅ Pass | MOV Ob rAL |
+| A3 | ✅ Pass | MOV Ov rvAX |
 | A4 | ❌ Fail | MOVS Yb Xb |
 | A5 | ❌ Fail | MOVS Yv Xv |
 | A6 | ❌ Fail | CMPS Xb Yb |

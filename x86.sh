@@ -399,7 +399,7 @@ decarg() {
 	Yb | Yv) echo "mem rES rvSI $mask" ;;
 	Gb | Gv)  mkreg ${ggg} $mask ;;
 	gb | gv)  mkreg $opg $mask ;;
-	Eb | Ev | Mp)  mkea $opmrr $mask ;;
+	Eb | Ew | Ev | Mp)  mkea $opmrr $mask ;;
 	rCL) mkreg 1 0xff ;;
 	rAL) mkreg 0 0xff ;;
 	rvAX) mkreg 0 $mask ;;
@@ -408,7 +408,7 @@ decarg() {
 	i3) echo "imm 3 $mask" ;;
 	Ib) fetch8 ; echo "imm $IR 0xffff" ;;
 	Iv) fetch16 ; echo "imm $IR 0xffff" ;;
-	Ob | Ov) echo "memo" ;;
+	Ob | Ov) mkea 0x6 $mask ;;
 	*) echo "$oparg" ;;
     esac
 }
@@ -434,6 +434,11 @@ execval() {
 	    else
 		read8 $base $off
 	    fi
+	    ;;
+	seg)
+	    # seg n (0=es, 1=cs, 2=ss, 3=ds)
+	    local n=$((oparg[1] + 16))
+	    getreg $n 0xffff
 	    ;;
 	*)
 	    echo 0x1234
