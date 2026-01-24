@@ -174,7 +174,7 @@ eg run ./86json.sh 00.json
 | 83.4 | ✅ Pass | 83.4 AND Ev Sb |
 | 83.5 | ✅ Pass | 83.5 SUB Eb IB |
 | 83.6 | ✅ Pass | 83.6 XOR Ev Sb |
-| 83.7 | ✅ Pass | 83.7 CMP Ev Sb |
+| 83.7 | ❌ Fail | 83.7 CMP Ev Sb |
 | 84 | ✅ Pass | 84 TEST Gb Eb |
 | 85 | ✅ Pass | 85 TEST Gv Ev |
 | 86 | ✅ Pass | 86 XCHG Gb Eb |
@@ -183,12 +183,11 @@ eg run ./86json.sh 00.json
 | 89 | ✅ Pass | 89 MOV Ev Gv |
 | 8A | ✅ Pass | 8A MOV Gb Eb |
 | 8B | ✅ Pass | 8B MOV Gv Ev |
-| 8C | ❌ Fail | 8C MOV Ew Sw |
+| 8C | ✅ Pass | 8C MOV Ew Sw |
 | 8D | ✅ Pass | 8D LEA Gv Mp |
-| 8E | ❌ Fail | 8E MOV Sw Ew |
+| 8E | ✅ Pass | 8E MOV Sw Ew |
 | 8F | ✅ Pass | 8F POP Ev __ |
-| 90 | ✅ Pass | 90 NOP  
-90 XCHG gv rvAX |
+| 90 | ✅ Pass | 90 NOP   |
 | 91 | ✅ Pass | 91 XCHG gv rvAX |
 | 92 | ✅ Pass | 92 XCHG gv rvAX |
 | 93 | ✅ Pass | 93 XCHG gv rvAX |
@@ -271,8 +270,8 @@ eg run ./86json.sh 00.json
 | D2.1 | ❌ Fail | D2.1 ROR Eb rCL |
 | D2.2 | ❌ Fail | D2.2 RCL Eb rCL |
 | D2.3 | ❌ Fail | D2.3 RCR Eb rCL |
-| D2.4 | ✅ Pass | D2.4 SHL Eb rCL |
-| D2.5 | ✅ Pass | D2.5 SHR Eb rCL |
+| D2.4 | ❌ Fail | D2.4 SHL Eb rCL |
+| D2.5 | ❌ Fail | D2.5 SHR Eb rCL |
 | D2.6 | ❌ Fail | D2.6 SAL Eb rCL |
 | D2.7 | ❌ Fail | D2.7 SAR Eb rCL |
 | D3.0 | ❌ Fail | D3.0 ROL Ev rCL |
@@ -332,12 +331,13 @@ eg run ./86json.sh 00.json
 | FC | ✅ Pass | FC CLD   |
 | FD | ✅ Pass | FD STD   |
 | FE.0 | ✅ Pass | FE.0 INC Eb |
-| FE.1 | ✅ Pass | FE.1 DEC Eb |
+| FE.1 | ❌ Fail | FE.1 DEC Eb |
 | FF.0 | ✅ Pass | FF.0 INC Ev |
 | FF.1 | ✅ Pass | FF.1 DEC Ev |
 | FF.2 | ❌ Fail | FF.2 CALL Ev |
 | FF.3 | ❌ Fail | FF.3 CALL Mp |
 | FF.4 | ✅ Pass | FF.4 JMP Ev |
 | FF.5 | ❌ Fail | FF.5 JMP Mp |
-| FF.6 | ✅ Pass | FF.6 PUSH Ev |
+| FF.6 | ❌ Fail | FF.6 PUSH Ev |
 | FF.7 | ❌ Fail | none |
+

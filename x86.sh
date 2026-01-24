@@ -505,7 +505,7 @@ execval() {
 	    ;;
 	seg)
 	    # seg n (0=es, 1=cs, 2=ss, 3=ds)
-	    local n=$((oparg[1] + 16))
+	    local n=$(((oparg[1] & 0x3) + 16))
 	    getreg $n 0xffff
 	    ;;
 	*)
@@ -535,7 +535,7 @@ execset() {
 	    fi
 	    ;;
 	seg)
-	    local n=$((oparg[1] + 16))
+	    local n=$(((oparg[1] & 3) + 16))
 	    setreg $n $val 0xffff
 	    ;;
     esac

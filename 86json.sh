@@ -66,7 +66,7 @@ check() {
 		fi
 		;;
 	    *)
-		printf "mismatch: $key $index $value [got: $rv %x]\n" $rv
+		printf "mismatch: $key $index %x [got: $rv %x]\n" $value $rv
 		;;
 	esac
     fi
@@ -80,9 +80,6 @@ parseregs() {
 
     # read json key/value pairs
     jq -c "$section" <<< "$json" > .input.$$
-#    echo -n "$section: "
-#    cat .input
-    
     jq -r "$section | to_entries[] | [.key, .value] | @tsv" > .input.$$ <<< "$json"
     while IFS=$'\t' read -r key value ; do
 	check "$key" "$value" "$ini"
@@ -106,7 +103,7 @@ parsemem() {
 	if [ $ini -eq 1 ]; then
 	    X86_MEM[$addr]=$val
 	elif [ "$mv" -ne "$val" ]; then
-	    echo "mismatch: mem $addr $val [got: $mv]"
+	    printf "mismatch: mem $addr %x [got: %x]\n" $val $mv
 	fi
     done < .input.$$
 }
