@@ -5,6 +5,8 @@ This is a toy emulator for x86 written in Bash.  It's about as slow as you can i
 The script works well enough to pass many of the tests from:
 https://github.com/SingleStepTests/8088/tree/main/v2
 
+eg run ./86json.sh 00.json
+
 | Opcode | Status | Mnemonic |
 | ------ | ------ | -------- |
 | 00 | ✅ Pass | ADD Eb Gb |
