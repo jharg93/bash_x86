@@ -2,6 +2,17 @@
 
 This is a toy emulator for x86 written in Bash.  It's about as slow as you can imagine....
 
+| Flag checks |
+| ----------- |
+| OF ✅ Pass |
+| DF ✅ Pass |
+| IF ✅ Pass |
+| SF ✅ Pass |
+| ZF ✅ Pass |
+| AF ❌ Fail |
+| PF ✅ Pass |
+| CF ✅ Pass |
+
 The script works well enough to pass many of the tests from:
 https://github.com/SingleStepTests/8088/tree/main/v2
 
@@ -16,7 +27,7 @@ eg run ./86json.sh 00.json
 | 04 | ✅ Pass | 04 ADD rAL Ib |
 | 05 | ✅ Pass | 05 ADD rvAX Iv |
 | 06 | ✅ Pass | 06 PUSH rES  |
-| 07 | ❌ Fail | 07 POP rES  |
+| 07 | ✅ Pass | 07 POP rES  |
 | 08 | ✅ Pass | 08 OR Eb Gb |
 | 09 | ✅ Pass | 09 OR Ev Gv |
 | 0A | ✅ Pass | 0A OR Gb Eb |
@@ -31,7 +42,7 @@ eg run ./86json.sh 00.json
 | 14 | ✅ Pass | 14 ADC rAL Ib |
 | 15 | ✅ Pass | 15 ADC rvAX Iv |
 | 16 | ✅ Pass | 16 PUSH rSS  |
-| 17 | ❌ Fail | 17 POP rSS  |
+| 17 | ✅ Pass | 17 POP rSS  |
 | 18 | ✅ Pass | 18 SBB Eb Gb |
 | 19 | ✅ Pass | 19 SBB Ev Gv |
 | 1A | ✅ Pass | 1A SBB Gb Eb |
@@ -39,7 +50,7 @@ eg run ./86json.sh 00.json
 | 1C | ✅ Pass | 1C SBB rAL Ib |
 | 1D | ✅ Pass | 1D SBB rvAX Iv |
 | 1E | ✅ Pass | 1E PUSH rDS  |
-| 1F | ❌ Fail | 1F POP rDS  |
+| 1F | ✅ Pass | 1F POP rDS  |
 | 20 | ✅ Pass | 20 AND Eb Gb |
 | 21 | ✅ Pass | 21 AND Ev Gv |
 | 22 | ✅ Pass | 22 AND Gb Eb |
@@ -68,22 +79,22 @@ eg run ./86json.sh 00.json
 | 3C | ❌ Fail | 3C CMP rAL Ib |
 | 3D | ❌ Fail | 3D CMP rvAX Iv |
 | 3F | ❌ Fail | 3F AAS   |
-| 40 | ❌ Fail | 40 INC gv  |
-| 41 | ❌ Fail | 41 INC gv  |
-| 42 | ❌ Fail | 42 INC gv  |
-| 43 | ❌ Fail | 43 INC gv  |
-| 44 | ❌ Fail | 44 INC gv  |
-| 45 | ❌ Fail | 45 INC gv  |
-| 46 | ❌ Fail | 46 INC gv  |
-| 47 | ❌ Fail | 47 INC gv  |
-| 48 | ❌ Fail | 48 DEC gv  |
-| 49 | ❌ Fail | 49 DEC gv  |
-| 4A | ❌ Fail | 4A DEC gv  |
-| 4B | ❌ Fail | 4B DEC gv  |
-| 4C | ❌ Fail | 4C DEC gv  |
-| 4D | ❌ Fail | 4D DEC gv  |
-| 4E | ❌ Fail | 4E DEC gv  |
-| 4F | ❌ Fail | 4F DEC gv  |
+| 40 | ✅ Pass | 40 INC gv  |
+| 41 | ✅ Pass | 41 INC gv  |
+| 42 | ✅ Pass | 42 INC gv  |
+| 43 | ✅ Pass | 43 INC gv  |
+| 44 | ✅ Pass | 44 INC gv  |
+| 45 | ✅ Pass | 45 INC gv  |
+| 46 | ✅ Pass | 46 INC gv  |
+| 47 | ✅ Pass | 47 INC gv  |
+| 48 | ✅ Pass | 48 DEC gv  |
+| 49 | ✅ Pass | 49 DEC gv  |
+| 4A | ✅ Pass | 4A DEC gv  |
+| 4B | ✅ Pass | 4B DEC gv  |
+| 4C | ✅ Pass | 4C DEC gv  |
+| 4D | ✅ Pass | 4D DEC gv  |
+| 4E | ✅ Pass | 4E DEC gv  |
+| 4F | ✅ Pass | 4F DEC gv  |
 | 50 | ✅ Pass | 50 PUSH gv  |
 | 51 | ✅ Pass | 51 PUSH gv  |
 | 52 | ✅ Pass | 52 PUSH gv  |
@@ -268,8 +279,8 @@ eg run ./86json.sh 00.json
 | D3.1 | ❌ Fail | D3.1 ROR Ev rCL |
 | D3.2 | ❌ Fail | D3.2 RCL Ev rCL |
 | D3.3 | ❌ Fail | D3.3 RCR Ev rCL |
-| D3.4 | ✅ Pass | D3.4 SHL Ev rCL |
-| D3.5 | ✅ Pass | D3.5 SHR Ev rCL |
+| D3.4 | ❌ Fail | D3.4 SHL Ev rCL |
+| D3.5 | ❌ Fail | D3.5 SHR Ev rCL |
 | D3.6 | ❌ Fail | D3.6 SAL Ev rCL |
 | D3.7 | ❌ Fail | D3.7 SAR Ev rCL |
 | D4 | ❌ Fail | D4 AAM Ib  |
@@ -320,10 +331,10 @@ eg run ./86json.sh 00.json
 | FB | ✅ Pass | FB STI   |
 | FC | ✅ Pass | FC CLD   |
 | FD | ✅ Pass | FD STD   |
-| FE.0 | ❌ Fail | FE.0 INC Eb |
-| FE.1 | ❌ Fail | FE.1 DEC Eb |
-| FF.0 | ❌ Fail | FF.0 INC Ev |
-| FF.1 | ❌ Fail | FF.1 DEC Ev |
+| FE.0 | ✅ Pass | FE.0 INC Eb |
+| FE.1 | ✅ Pass | FE.1 DEC Eb |
+| FF.0 | ✅ Pass | FF.0 INC Ev |
+| FF.1 | ✅ Pass | FF.1 DEC Ev |
 | FF.2 | ❌ Fail | FF.2 CALL Ev |
 | FF.3 | ❌ Fail | FF.3 CALL Mp |
 | FF.4 | ✅ Pass | FF.4 JMP Ev |

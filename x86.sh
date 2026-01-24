@@ -534,6 +534,10 @@ execset() {
 		write8 $base $off $val
 	    fi
 	    ;;
+	seg)
+	    local n=$((oparg[1] + 16))
+	    setreg $n $val 0xffff
+	    ;;
     esac
 }
 
@@ -553,8 +557,8 @@ aluop() {
 	ADD) res=$((v1 + v2)) ; ncf=1 ;;
 	ADC) res=$((v1 + v2 + CF)) ; ncf=1 ;;
 	SBB) res=$((v1 - v2 - CF)) ; ncf=2 ;;
-	INC) res=$((v1 + 1)) ;;
-	DEC) res=$((v1 - 1)) ;;
+	INC) res=$((v1 + 1)) ; v2=1 ; ncf=3 ;;
+	DEC) res=$((v1 - 1)) ; v1=1 ; ncf=4 ;;
 	NEG) res=$((0 - v1)) ;;
 	NOT) res=$((~v2)) ;;
 	AND) res=$((v1 & v2)) ;;
@@ -581,6 +585,14 @@ aluop() {
 	2)
 	    OF=$((((v1 ^ v2) & (v1 ^ res) & sgn) != 0))
 	    CF=$(((((~v1 & v2) | ((~v1 | v2) & res)) & sgn) != 0))
+	    ;;
+	3)
+	    # inc only sets OF
+	    OF=$((((v1 ^ res) & (v2 ^ res) & sgn) != 0))
+	    ;;
+	4)
+	    # dec only sets OF
+	    OF=$((((v1 ^ v2) & (v1 ^ res) & sgn) != 0))
 	    ;;
 	0)
 	    OF=0
