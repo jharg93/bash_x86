@@ -1,5 +1,7 @@
 #!/bin/bash
-
+#
+# Lets emulate an x86 in bash....
+#
 declare -a X86_MNEM
 declare -a X86_OP1
 declare -a X86_OP2
@@ -14,6 +16,8 @@ error_handler() {
 
 trap 'error_handler' ERR
 
+# CPU Flags
+# flags="odiszapc"
 SF=0
 ZF=0
 AF=0
@@ -115,6 +119,7 @@ getreg() {
     printf "0x%x" $((X86_REGS[num] & mask))
 }
 
+# Test JCC conditions
 ccond=(ccO ccNO ccB ccNB ccZ ccNZ ccBE ccA ccS ccNS ccPE ccPO ccL ccGE ccLE ccG) 
 testcond() {
     local opcode=$1
@@ -149,7 +154,6 @@ setop() {
     X86_ENC[$op]="$enc"
 }
 
-# flags="odiszapc"
 grp1=(ADD OR ADC SBB AND SUB XOR CMP)
 grp2=(ROL ROR RCL RCR SHL SHR SAL SAR)
 grp3=(TEST TEST NOT NEG MUL IMUL DIV IDIV)
@@ -492,7 +496,7 @@ aluop() {
     execset "$dest" "$res"
 }
 
-# flags = "odiszapc"
+# Execute an opcode
 execop() {
     local opcode=$1 opfn=$2 s1="$3" eval s2="$4"
     flags=""
@@ -548,6 +552,7 @@ execop() {
 	    ax=$(getreg 0 $osize)
 	    sgn=$(printf "0x%x" $((osize - (osize >> 1))))
 	    if [ $(($ax & $sgn)) != 0 ]; then
+		# if AX is signed, then set DX=-1
 		setreg 2 0xffffffff $osize
 	    fi
 	    ;;

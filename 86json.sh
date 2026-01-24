@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# Run single-step json tests for x86 core
+
 # Load x86 core
 . x86.sh load
 
@@ -39,6 +41,7 @@ check() {
 	X86_REGS[$index]=$value
     elif [[ "$rv" -ne "$value" ]] ; then
 	case $key in
+	    # hack. ignore jumps/calls/flags
 	    ip|flags) ;;
 	    *) printf "mismatch: $key $index $value [got: $rv %x]\n" $rv ;;
 	esac
@@ -103,6 +106,7 @@ loadfile() {
 	OF=$(((X86_REGS[14] >> 11) & 1))
 	printf " %x SF=$SF ZF=$ZF AF=$AF PF=$PF CF=$CF DF=$DF IF=$IF seg=$seg\n" ${X86_REGS[14]}
 
+	# Loop while prefix set
 	pfx=1
 	seg=""
 	osize=0xffff
