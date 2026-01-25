@@ -198,8 +198,8 @@ eg run ./86json.sh 00.json
 | 98 | ✅ Pass | 98 CBW   |
 | 99 | ✅ Pass | 99 CWD   |
 | 9A | ✅ Pass | 9A CALL Ap  |
-| 9C | ❌ Fail | 9C PUSHF   |
-| 9D | ❌ Fail | 9D POPF   |
+| 9C | ✅ Pass | 9C PUSHF   |
+| 9D | ✅ Pass | 9D POPF   |
 | 9E | ✅ Pass | 9E SAHF   |
 | 9F | ✅ Pass | 9F LAHF   |
 | A0 | ✅ Pass | A0 MOV rAL Ob |
@@ -208,16 +208,16 @@ eg run ./86json.sh 00.json
 | A3 | ✅ Pass | A3 MOV Ov rvAX |
 | A4 | ✅ Pass | A4 MOVS Yb Xb |
 | A5 | ✅ Pass | A5 MOVS Yv Xv |
-| A6 | ❌ Fail | A6 CMPS Xb Yb |
-| A7 | ❌ Fail | A7 CMPS Xv Yv |
+| A6 | ✅ Pass | A6 CMPS Xb Yb |
+| A7 | ✅ Pass | A7 CMPS Xv Yv |
 | A8 | ✅ Pass | A8 TEST rAL Ib |
 | A9 | ✅ Pass | A9 TEST rvAX Iv |
 | AA | ✅ Pass | AA STOS Yb rAL |
 | AB | ✅ Pass | AB STOS Yv rvAX |
 | AC | ✅ Pass | AC LODS rAL Xb |
 | AD | ✅ Pass | AD LODS rvAX Xv |
-| AE | ❌ Fail | AE SCAS rAL Yb |
-| AF | ❌ Fail | AF SCAS rvAX Yv |
+| AE | ✅ Pass | AE SCAS rAL Yb |
+| AF | ✅ Pass | AF SCAS rvAX Yv |
 | B0 | ✅ Pass | B0 MOV gb Ib |
 | B1 | ✅ Pass | B1 MOV gb Ib |
 | B2 | ✅ Pass | B2 MOV gb Ib |
@@ -236,7 +236,7 @@ eg run ./86json.sh 00.json
 | BF | ✅ Pass | BF MOV gv Iv |
 | C0 | ❌ Fail | C0 GRP2 Eb Ib |
 | C1 | ❌ Fail | C1 GRP2 Ev Ib |
-| C2 | ❌ Fail | C2 RET Iw  |
+| C2 | ✅ Pass | C2 RET Iw  |
 | C3 | ✅ Pass | C3 RET   |
 | C4 | ✅ Pass | C4 LES Gv Mp |
 | C5 | ✅ Pass | C5 LDS Gv Mp |
@@ -244,10 +244,10 @@ eg run ./86json.sh 00.json
 | C7 | ✅ Pass | C7 MOV Ev Iv |
 | C8 | ❌ Fail | none |
 | C9 | ❌ Fail | none |
-| CA | ❌ Fail | CA RETF Iw  |
+| CA | ✅ Pass | CA RETF Iw  |
 | CB | ✅ Pass | CB RETF   |
-| CC | ❌ Fail | CC INT i3  |
-| CD | ❌ Fail | CD INT Ib  |
+| CC | ✅ Pass | CC INT i3  |
+| CD | ✅ Pass | CD INT Ib  |
 | CE | ❌ Fail | CE INTO   |
 | CF | ❌ Fail | CF IRET   |
 | D0.0 | ❌ Fail | D0.0 ROL Eb i1 |
@@ -343,3 +343,4 @@ eg run ./86json.sh 00.json
 | FF.5 | ✅ Pass | FF.5 JMP Mp |
 | FF.6 | ✅ Pass | FF.6 PUSH Ev |
 | FF.7 | ❌ Fail | none |
+

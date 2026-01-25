@@ -36,6 +36,7 @@ PF=0
 CF=0
 DF=0
 IF=0
+TF=0
 
 getflags() {
     N=${X86_REGS[14]}
@@ -44,17 +45,20 @@ getflags() {
     AF=$(((N >> 4) & 1))   # 010
     ZF=$(((N >> 6) & 1))   # 040
     SF=$(((N >> 7) & 1))   # 080
+    TF=$(((N >> 8) & 1))   # 100
     IF=$(((N >> 9) & 1))   # 200
     DF=$(((N >> 10) & 1))  # 400
     OF=$(((N >> 11) & 1))  # 800
 }
 
 setflags() {
-    N=$((0x1|0x4|0x10|0x40|0x80|0x200|0x400|0x800))
+    N=0x0FD5
     nf=$((
+	    0xf000 |
 	    (OF<<11) |
 		(DF<<10) |
 		(IF<<9)  |
+		(TF<<8)  |
 		(SF<<7)  |
 		(ZF<<6)  |
 		(AF<<4)  |
@@ -151,8 +155,8 @@ loadptr() {
     local oparg=($3)
     local pseg=${oparg[1]}
     local pofs=${oparg[2]}
-    printf -v "$co" $(read16 $pseg $pofs)
-    printf -v "$cs" $(read16 $pseg $((pofs + 2)))
+    printf -v "$co" "0x%x" $(read16 $pseg $pofs)
+    printf -v "$cs" "0x%x" $(read16 $pseg $((pofs + 2)))
 }
 
 # push value to stack (dec->write)
@@ -216,7 +220,7 @@ setreg() {
 	val=$((val << 8))
 	num=$((num - 4))
     fi
-#    printf "setreg $num %x $mask\n" $val
+    printf "setreg $num %x $mask\n" $val
     X86_REGS[$num]=$(((X86_REGS[num] & ~mask) | val))
 }
 
@@ -228,6 +232,21 @@ getreg() {
 	return
     fi
     printf "0x%x" $((X86_REGS[num] & mask))
+}
+
+vector() {
+    local vector=$1
+    local ncs=$(read16 0x0 $((vector * 4 + 2)))
+    local npc=$(read16 0x0 $((vector * 4 + 0)))
+
+    setflags
+    printf "int 0x%x 0x%x\n" $ncs $npc
+    pushv $(getreg 14 0xffff) 0xffff # flags
+    pushv $(getreg 17 0xffff) 0xffff # cs
+    pushv $(getreg 15 0xffff) 0xffff # ip
+
+    setreg 17 $ncs 0xffff
+    setreg 15 $npc $osize
 }
 
 # Undefined opcode fault
@@ -425,8 +444,8 @@ setop 0xee OUT rDX rAL
 setop 0xef OUT rDX rvAX
 
 setop 0xf0 LOCK
-setop 0xf2 REP 0x1
-setop 0xf3 REP 0x2
+setop 0xf2 REP repnz # repnz
+setop 0xf3 REP repz  # repz
 setop 0xf4 HLT
 setop 0xf5 CMC
 setop 0xf6 GRP3 Eb __ MRR # TEST needs Ib
@@ -602,7 +621,7 @@ strop() {
     [ $DF != 0 ] && delta=$((-delta))
 
     # inc/dec index
-    setreg $vo $((voff + delta)) $mask
+    setreg $vo $((voff + delta)) $opsize
 
     # Memory address
     printf -v "$__out" "mem 0x%.4x 0x%.4x 0x%.4x" $val $voff $mask
@@ -648,6 +667,7 @@ decarg() {
 	i1) mkimm $__out 1 $mask ;;
 	i3) mkimm $__out 3 $mask ;;
 	Ib) fetch8 IR ; mkimm $__out $IR $mask ;;
+	Iw) fetch16 IR; mkimm $__out $IR $mask ;;
 	Iv) fetchv ; mkimm $__out $IR $mask ;;
 	Sb)
 	    # signed byte
@@ -886,7 +906,7 @@ execop() {
 	    local v1="$(execval "$s2")"
 	    printf "osize=$osize $v1\n"
 	    execset "$s1" "$v1"
-	    if [[ $rep != 0 ]] ; then
+	    if [[ -n "$rep" ]] ; then
 		local cx=$(getreg 1 $osize)
 		local pc=$(getreg 15 $osize)
 		if [[ $cx -ne 0 ]]; then
@@ -896,6 +916,26 @@ execop() {
 		    	# decrease CX,PC and set prefix
 			setreg 15 $((pc - 1)) $osize
 			pfx=1
+		    fi
+		fi
+	    fi
+	    ;;
+	CMPS | SCAS)
+	    aluop CMP "$s1" "$s2"
+	    echo "strop:CMPS $rep $ZF"
+	    if [[ -n "$rep" ]]; then
+		local cx=$(getreg 1 $osize)
+		local pc=$(getreg 15 $osize)
+		echo "inrep $rep"
+		if [[ $cx -ne 0 ]]; then
+		    cx=$(((cx - 1) & $osize))
+		    setreg 1 $cx $osize
+		    pfx=1
+		    [[ $cx -eq 0 ]] && pfx=0
+		    [[ "$rep" == "repz" && ZF -eq 0 ]] && pfx=0
+		    [[ "$rep" == "repnz" && ZF -eq 1 ]] && pfx=0
+		    if [[ $pfx -ne 0 ]] ; then
+			setreg 15 $((pc - 1)) $osize
 		    fi
 		fi
 	    fi
@@ -945,15 +985,33 @@ execop() {
 	    ;;
 	DIV)
 	    opgrp=$((opmrr & 0xFF00))
+	    local v2="$(execval "$s1")"
 	    if [[ $opgrp -eq 0xF600 ]]; then
-		mkreg ax 0 0xffffff
-		aluop DIVLO "$ax" "$s1"
+		# AH = AX % Eb
+		# AL = AX / Eb
+		local ax=$(getreg 0 0xffff)
+		local res=$((ax / v2))
+		setreg 4 $((ax % v2)) 0xff
+		setreg 0 $res 0xff
+		echo "div"
 	    fi
 	    if [[ $opgrp -eq 0xF700 ]]; then
-		ax=$(getreg 0 0xffff)
-		dx=$(getreg 2 0xffff)
-		mkimm dxax $(((dx << 16) + ax)) 0xffffffff
-		aluop DIVHI "$dxax" "$s1"
+		# DX = DX:AX % Ev
+		# AX = DX:AX / Ev
+		local ax=$(getreg 0 0xffff)
+		local dx=$(getreg 2 0xffff)
+		local dax=$(((dx << 16) + ax))
+		local res=$((dax / v2))
+		setreg 2 $((dax % v2)) 0xffff
+		setreg 0 $res 0xffff
+	    fi
+	    if [[ $opfn == AAM ]] ; then
+		# AH = AL / Ib
+		# AL = AL % Ib
+		local ax=$(getreg 0 0xff)
+		local res=$((ax / v2))
+		setreg 0 $((ax % v2)) 0xff
+		setreg 4 $res 0xff
 	    fi
 	    ;;
 	    
@@ -965,20 +1023,24 @@ execop() {
 	STC) CF=1 ;;
 	CMC) CF=$((1-CF)) ;;
 	RET)
-	    arg="$(execval "$s1")"
-	    local sp=$(getreg 4 $osize)
-	    setreg 4 $((sp + arg)) $osize
 	    popv v1
 	    setreg 15 $v1 $osize
+	    v1="$(execval "$s1")"
+	    if [[ $v1 -ne 0 ]]; then
+		local sp=$(getreg 4 $osize)
+		setreg 4 $((sp + v1)) $osize
+	    fi
 	    ;;
 	RETF)
-	    arg="$(execval "$s1")"
-	    local sp=$(getreg 4 $osize)
-	    setreg 4 $((sp + arg)) $osize
 	    popv co
 	    popv cs
 	    setreg 15 co $osize
 	    setreg 17 cs 0xffff
+	    v1="$(execval "$s1")"
+	    if [[ $v1 -ne 0 ]]; then
+		local sp=$(getreg 4 $osize)
+		setreg 4 $((sp + v1)) $osize
+	    fi
 	    ;;
 	CALL)
 	    arg="$(execval "$s1")"
@@ -989,12 +1051,8 @@ execop() {
 	    local arg="$(execval "$s1")"
 	    local cseg=$((arg >> 16))
 	    local coff=$((arg & 0xFFFF))
-	    if [[ "$s1" == "mem"* ]] ; then
-		local oparg=($s1)
-		local pseg=${oparg[1]}
-		local pofs=${oparg[2]}
-		coff=$(read16 $pseg $pofs)
-		cseg=$(read16 $pseg $((pofs + 2)))
+	    if [[ "$s1" == "mem "* ]] ; then
+		loadptr cseg coff "$s1"
 	    fi
 	    pushv $(getreg 17 0xffff) 0xffff # push cs
 	    pushv $(getreg 15 0xffff) 0xffff # push ip
@@ -1009,12 +1067,8 @@ execop() {
 	    arg="$(execval "$s1")"
 	    local cseg=$((arg >> 16))
 	    local coff=$((arg & 0xFFFF))
-	    if [[ "$s1" == "mem"* ]] ; then
-		local oparg=($s1)
-		local pseg=${oparg[1]}
-		local pofs=${oparg[2]}
-		coff=$(read16 $pseg $pofs)
-		cseg=$(read16 $pseg $((pofs + 2)))
+	    if [[ "$s1" == "mem "* ]] ; then
+		loadptr cseg coff "$s1"
 	    fi
 	    setreg 17 $cseg 0xffff
 	    setreg 15 $coff 0xffff
@@ -1166,6 +1220,16 @@ execop() {
 	    local ah=$(((SF << 7) | (ZF << 6) | (AF << 4) | (PF << 2) | 0x2 | CF))
 	    setreg 4 $ah 0xff
 	    ;;
+	PUSHF)
+	    setflags
+	    pushv ${X86_REGS[14]} $osize
+	    ;;
+	POPF)
+	    popv v1
+	    printf "set flags %x\n" $v1
+	    setreg 14 $v1 0xfd5
+	    getflags
+	    ;;
 	SAHF)
 	    local ah=$(getreg 4 0xff)
 	    CF=$(((ah & 0x1) != 0))
@@ -1173,6 +1237,13 @@ execop() {
 	    AF=$(((ah & 0x10) != 0))
 	    ZF=$(((ah & 0x40) != 0))
 	    SF=$(((ah & 0x80) != 0))
+	    ;;
+	INT)
+	    local v1="$(execval "$s1")"
+	    vector $v1
+	    ;;
+	INTO)
+	    [[ OF ]] && vector 0x4
 	    ;;
 	IN)
 	    # hack return set bits
@@ -1185,57 +1256,16 @@ execop() {
 	    execset "$s1" ${lea[2]}
 	    ;;
 	AAA)
-	    local AX=$(getreg 0 0xffff)
-	    if (( $((AX & 0xF)) > 9 || AF==1 )); then
-		AX=$((AX + 0x106))
-		AF=1
-		CF=1
-	    else
-		AF=0
-		CF=0
-	    fi
-	    setreg 0 $((AX & 0xFF0F)) 0xffff
 	    ;;
 	AAS)
-	    local AX=$(getreg 0 0xffff)
-	    if (( $((AX & 0xF)) > 9 || AF==1 )); then
-		AX=$((AX - 0x106))
-		AF=1
-		CF=1
-	    else
-		AF=0
-		CF=0
-	    fi
-	    setreg 0 $((AX & 0xFF0F)) 0xffff
 	    ;;
 	AAM)
-	    local v1=$(getreg 0 0xff)
-	    local v2="$(execval "$s1")"
-	    local res=$((v1 % v2))
-	    setreg 4 $((v1 / v2)) 0xff
-	    setreg 0 $res 0xff
-
-	    local sgn=0x80
-	    ZF=$((res == 0))
-	    SF=$(((res & sgn) != 0))
-	    PF=$(parity $res)
-#	    OF=$((((v1 ^ res) & (v2 ^ res) & sgn) != 0))
-#	    CF=$(((((v1 & v2) | (v1 & ~res) | (v2 & ~res)) & sgn) != 0))
 	    ;;
 	AAD)
-	    local v1=$(getreg 0 0xff)
-	    local v2=$(getreg 4 0xff)
-	    local v3="$(execval "$s1")"
-	    setreg 4 0 0xff
-	    setreg 0 $((v1 + (v2 * v3))) 0xff
 	    ;;
 	DAA)
-	    local AL=$(getreg 0 0xff)
-	    echo "AL:$AL CF:$CF AF:$AF"
 	    ;;
 	DAS)
-	    local AL=$(getreg 0 0xff)
-	    echo "AL:$AL CF:$CF AF:$AF"
 	    ;;
 	NOP | WAIT) ;;
 	*) printf " noval\n" ; return ;;

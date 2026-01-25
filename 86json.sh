@@ -32,6 +32,7 @@ regindex() {
     esac
 }
 
+# Generate flag string
 fstr() {
     local f=$1
     local out=""
@@ -63,7 +64,7 @@ check() {
 	X86_REGS[$index]=$value
     elif [[ "$rv" -ne "$value" ]] ; then
 	case $key in
-	    # hack. ignore jumps/calls/flags
+	    # hack. ignore AF for now
 	    flags|eflags)
 		value=$((value & ~0x10))
 		rv=$((rv & ~0x10))
@@ -99,7 +100,6 @@ parsemem() {
     local section=$3
 
     jq -r "$section | .[] | @tsv" > .input.$$ <<< "$json"
-#    echo "readmem $section"
     while IFS=$'\t' read -r addr val ; do
 	mv=${X86_MEM[$addr]}
 	if [ -z "$mv" ]; then
@@ -130,19 +130,15 @@ loadfile() {
 
 	# Loop while prefix set
 	pfx=1
-	seg=""
-	rep=0
+	rep=""
 	lock=""
+	seg=""
 	osize=0xffff
 	asize=0xffff
 	mask=0xffff
 	if [[ $cpu_type == 80386 ]] ; then
 	    echo "32-bit"
-#	    osize=0xffffffff
-	    asize=0xffffffff
-#	    mask=0xffffffff
 	fi
-	showregs
 	while [ $pfx -eq 1 ]; do
 	    pfx=0
 	    fetch8 opcode
