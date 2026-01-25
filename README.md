@@ -99,7 +99,7 @@ eg run ./86json.sh 00.json
 | 51 | ✅ Pass | 51 PUSH gv  |
 | 52 | ✅ Pass | 52 PUSH gv  |
 | 53 | ✅ Pass | 53 PUSH gv  |
-| 54 | ❌ Fail | 54 PUSH gv  |
+| 54 | ✅ Pass | 54 PUSH gv  |
 | 55 | ✅ Pass | 55 PUSH gv  |
 | 56 | ✅ Pass | 56 PUSH gv  |
 | 57 | ✅ Pass | 57 PUSH gv  |
@@ -313,16 +313,16 @@ eg run ./86json.sh 00.json
 | F5 | ✅ Pass | F5 CMC   |
 | F6.0 | ✅ Pass | F6.0 TEST Eb Ib |
 | F6.1 | ✅ Pass | F6.1 TEST Eb Ib |
-| F6.2 | ❌ Fail | F6.2 NOT Eb |
-| F6.3 | ❌ Fail | F6.3 NEG Eb |
+| F6.2 | ✅ Pass | F6.2 NOT Eb |
+| F6.3 | ✅ Pass | F6.3 NEG Eb |
 | F6.4 | ❌ Fail | F6.4 MUL Eb |
 | F6.5 | ❌ Fail | F6.5 IMUL Eb |
 | F6.6 | ❌ Fail | F6.6 DIV Eb |
 | F6.7 | ❌ Fail | F6.7 IDIV Eb |
 | F7.0 | ✅ Pass | F7.0 TEST Ev Iv |
 | F7.1 | ✅ Pass | F7.1 TEST Ev Iv |
-| F7.2 | ❌ Fail | F7.2 NOT Ev |
-| F7.3 | ❌ Fail | F7.3 NEG Ev |
+| F7.2 | ✅ Pass | F7.2 NOT Ev |
+| F7.3 | ✅ Pass | F7.3 NEG Ev |
 | F7.4 | ❌ Fail | F7.4 MUL Ev |
 | F7.5 | ❌ Fail | F7.5 IMUL Ev |
 | F7.6 | ❌ Fail | F7.6 DIV Ev |
@@ -338,8 +338,8 @@ eg run ./86json.sh 00.json
 | FF.0 | ✅ Pass | FF.0 INC Ev |
 | FF.1 | ✅ Pass | FF.1 DEC Ev |
 | FF.2 | ✅ Pass | FF.2 CALL Ev |
-| FF.3 | ❌ Fail | FF.3 CALL Mp |
+| FF.3 | ✅ Pass | FF.3 CALL Mp |
 | FF.4 | ✅ Pass | FF.4 JMP Ev |
 | FF.5 | ✅ Pass | FF.5 JMP Mp |
-| FF.6 | ❌ Fail | FF.6 PUSH Ev |
+| FF.6 | ✅ Pass | FF.6 PUSH Ev |
 | FF.7 | ❌ Fail | none |

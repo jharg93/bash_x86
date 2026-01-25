@@ -5,25 +5,29 @@
 # Load x86 core
 . x86.sh load
 
-verbose=0
-
 # return register index
 regindex() {
     case $1 in
-	ax) echo 0 ;;
-	cx) echo 1 ;;
-	dx) echo 2 ;;
-	bx) echo 3 ;;
-	sp) echo 4 ;;
-	bp) echo 5 ;;
-	si) echo 6 ;;
-	di) echo 7 ;;
+	ax|eax) echo 0 ;;
+	cx|ecx) echo 1 ;;
+	dx|edx) echo 2 ;;
+	bx|ebx) echo 3 ;;
+	sp|esp) echo 4 ;;
+	bp|ebp) echo 5 ;;
+	si|esi) echo 6 ;;
+	di|edi) echo 7 ;;
+	cr0) echo 8 ;;
+	cr3) echo 9 ;;
+	dr6) echo 10 ;;
+	dr7) echo 11 ;;
+	ip|eip) echo 15 ;;
 	es) echo 16 ;;
 	cs) echo 17 ;;
 	ss) echo 18 ;;
 	ds) echo 19 ;;
-	ip) echo 15 ;;
-	flags) echo 14 ;;
+	fs) echo 20 ;;
+	gs) echo 21 ;;
+	flags|eflags) echo 14 ;;
 	*) echo -1 ;;
     esac
 }
@@ -60,7 +64,7 @@ check() {
     elif [[ "$rv" -ne "$value" ]] ; then
 	case $key in
 	    # hack. ignore jumps/calls/flags
-	    flags)
+	    flags|eflags)
 		value=$((value & ~0x10))
 		rv=$((rv & ~0x10))
 		if [[ "$rv" -ne "$value" ]] ; then
@@ -128,14 +132,26 @@ loadfile() {
 	pfx=1
 	seg=""
 	rep=0
+	lock=""
 	osize=0xffff
+	asize=0xffff
 	mask=0xffff
+	if [[ $cpu_type == 80386 ]] ; then
+	    echo "32-bit"
+#	    osize=0xffffffff
+	    asize=0xffffffff
+#	    mask=0xffffffff
+	fi
+	showregs
 	while [ $pfx -eq 1 ]; do
 	    pfx=0
 	    fetch8 opcode
 	    printf "opcode is ${opcode} %x\n" ${X86_REGS[15]}
 	    decode $opcode
 	done
+	if [[ $cpu_type == 80386 ]] ; then
+	   fetch8 prefetch
+	fi
 	setflags
 
 	# Read final regso
@@ -144,9 +160,18 @@ loadfile() {
     done < <(jq -c ".[]" $file)
 }
 
-while getopts "v" opt; do
+while getopts "v32" opt; do
     case "$opt" in
-	v) verbose=1 ;;
+	v)
+	    verbose=1
+	    ;;
+	2)
+	    cpu_type=80286
+	    ;;
+	3)
+	    cpu_type=80386
+	    add386
+	    ;;
     esac
 done
 shift $((OPTIND - 1))
