@@ -9,6 +9,7 @@ declare -a X86_ENC
 declare -a X86_REGS
 declare -a X86_MEM
 
+fault=0
 lock=0
 verbose=0
 cpu_type=8088
@@ -54,7 +55,6 @@ getflags() {
 setflags() {
     N=0x0FD5
     nf=$((
-	    0xf000 |
 	    (OF<<11) |
 		(DF<<10) |
 		(IF<<9)  |
@@ -66,27 +66,59 @@ setflags() {
 	   (1<<1) |
 	   CF
 	))
+    if [[ $cpu_type == 8088 ]]; then
+	nf=$((nf | 0xf000))
+    fi
     X86_REGS[14]=$(((X86_REGS[14] & ~N) | nf))
+}
+
+setoszapc() {
+    local res=$1 v1=$2 v2=$3 mask=$4
+
+    case $mask in
+	0xff) sgn=0x80 ;;
+	0xffff) sgn=0x8000 ;;
+	0xffffffff) sgn=0x80000000 ;;
+	0xffffffffffffffff) sgn=0x8000000000000000 ;;
+    esac
+    res=$((res & mask))
+    ZF=$((val == 0))
+    SF=$(((val & sgn) != 0))
+    PF=$(parity $val)
+}
+
+checkmem() {
+    local co=$1
+    local vect=$2
+
+    if [[ -z "$vect" ]]; then
+	vect=0xd
+    fi
+    # GPF or SS
+    if [[ $cpu_type == 80386 && $co -gt 0xffff ]]; then
+	printf "fault $vect 0x%x\n" $co
+	fault=1
+    fi
 }
 
 # fetch byte from PC
 fetch8() {
-    local __out=$1
+    local out=$1
     local pc=${X86_REGS[15]}
     local cs=${X86_REGS[17]}
     local addr=$(((cs * 16 + pc) & $addr_mask))
     printf "fetch %d %x\n" $addr $addr
     local v=${X86_MEM[$addr]}
     X86_REGS[15]=$(((pc+1) & 0xffff))
-    printf -v "$__out" "0x%.2x" $v
+    printf -v "$out" "0x%.2x" $v
 }
 
 # fetch word from PC
 fetch16() {
-    local __out=$1
+    local out=$1
     fetch8 FLO
     fetch8 FHI
-    printf -v "$__out" "0x%.2x%.2x" $FHI $FLO
+    printf -v "$out" "0x%.2x%.2x" $FHI $FLO
 }
 
 # fetchv
@@ -113,16 +145,19 @@ fetchv() {
 
 # read8 seg off
 read8() {
-    local off=$2
-    local base=$(($1 * 16))
+    local out=$1
+    local off=$3
+    checkmem $((off + 0))
+    local base=$(($2 * 16))
     local addr=$(((base + (off + 0 & 0xffff)) & $addr_mask))
     local v=${X86_MEM[$addr]}
-    printf "0x%x" $v
+    printf -v "$out" "0x%x" $v
 }
 
 # write8 seg off val
 write8() {
     local off=$2
+    checkmem $((off + 0))
     local base=$(($1 * 16))
     local addr=$(((base + (off + 0 & 0xffff)) & $addr_mask))
     X86_MEM[$addr]=$(($3 & 0xff))
@@ -130,21 +165,25 @@ write8() {
 
 # read16 seg off
 read16() {
-    local off=$2
-    local base=$(($1 * 16))
-    local a0=$(((base + (off + 0 & 0xFFFF)) & 0xfffff))
-    local a1=$(((base + (off + 1 & 0xFFFF)) & 0xfffff))
+    local out=$1
+    local off=$3
+    local vect=$4
+    checkmem $((off + 0)) $vect
+    checkmem $((off + 1)) $vect
+    local base=$(($2 * 16))
+    local a0=$(((base + (off + 0 & 0xFFFF)) & $addr_mask))
+    local a1=$(((base + (off + 1 & 0xFFFF)) & $addr_mask))
     local v1=${X86_MEM[$a0]}
     local v2=${X86_MEM[$a1]}
-    printf "0x%.2x%.2x" $v2 $v1
+    printf -v "$out" "0x%.2x%.2x" $v2 $v1
 }
 
 # write16 seg off val
 write16() {
     local off=$2
     local base=$(($1 * 16))
-    local a0=$(((base + (off + 0 & 0xFFFF)) & 0xfffff))
-    local a1=$(((base + (off + 1 & 0xFFFF)) & 0xfffff))
+    local a0=$(((base + (off + 0 & 0xFFFF)) & $addr_mask))
+    local a1=$(((base + (off + 1 & 0xFFFF)) & $addr_mask))
     X86_MEM[$a0]=$(($3 & 0xff))
     X86_MEM[$a1]=$((($3 >> 8) & 0xff))
 }
@@ -155,8 +194,8 @@ loadptr() {
     local oparg=($3)
     local pseg=${oparg[1]}
     local pofs=${oparg[2]}
-    printf -v "$co" "0x%x" $(read16 $pseg $pofs)
-    printf -v "$cs" "0x%x" $(read16 $pseg $((pofs + 2)))
+    read16 coff $pseg $pofs
+    read16 cseg $pseg $((pofs + 2))
 }
 
 # push value to stack (dec->write)
@@ -188,22 +227,28 @@ pushv() {
 
 # pop value from stack (read -> inc)
 popv() {
-    local __out=$1
+    local out=$1
     local sp=${X86_REGS[4]}
     local ss=${X86_REGS[18]}
     case $osize in
 	0xffff)
 	    setreg 4 $((sp + 2)) 0xffff
-	    N=$(read16 $ss $sp)
-	    printf -v "$__out" "0x%x" $N
+	    read16 N $ss $sp 0x0c
+	    printf "pop16 $fault\n"
+	    printf -v "$out" "0x%x" $N
+	    if [[ $fault -ne 0 ]] ; then
+		setreg 4 $sp 0xffff
+		vector 0xc
+	    fi
 	    ;;
 	0xffffffff)
-	    L=$(read16 $ss $sp)
+	    read16 PL $ss $sp 0x0c
 	    sp=$(((sp + 2) & 0xffffffff))
-	    H=$(read16 $ss $sp)
+	    read16 PH $ss $sp 0x0c
 	    sp=$(((sp + 2) & 0xffffffff))
 	    setreg 4 $sp
-	    printf -v "$__out" "0x%.4x%.4x" $H $L
+	    printf "pop32\n"
+	    printf -v "$out" "0x%.4x%.4x" $PH $PL
 	    ;;
     esac
 }
@@ -236,14 +281,15 @@ getreg() {
 
 vector() {
     local vector=$1
-    local ncs=$(read16 0x0 $((vector * 4 + 2)))
-    local npc=$(read16 0x0 $((vector * 4 + 0)))
+    read16 ncs 0x0 $((vector * 4 + 2))
+    read16 npc 0x0 $((vector * 4 + 0))
 
     setflags
     printf "int 0x%x 0x%x\n" $ncs $npc
     pushv $(getreg 14 0xffff) 0xffff # flags
     pushv $(getreg 17 0xffff) 0xffff # cs
-    pushv $(getreg 15 0xffff) 0xffff # ip
+    printf "ip : 0x%x\n" $spc
+    pushv $spc 0xffff # ip
 
     setreg 17 $ncs 0xffff
     setreg 15 $npc $osize
@@ -251,14 +297,14 @@ vector() {
 
 # Undefined opcode fault
 UD2() {
-    local ncs=$(read16 0x0 0x1a)
-    local npc=$(read16 0x0 0x18)
+    read16 ncs 0x0 0x1a
+    read16 npc 0x0 0x18
 
     setflags
-    printf "ud2 0x%x 0x%x 0x%x\n" $ncs $npc $lock
+    printf "ud2 0x%x 0x%x 0x%x\n" $ncs $npc $spc
     pushv $(getreg 14 0xffff) 0xffff # flags
     pushv $(getreg 17 0xffff) 0xffff # cs
-    pushv $lock 0xffff # ip
+    pushv $spc 0xffff # ip
 
     setreg 17 $ncs 0xffff
     setreg 15 $npc $osize
@@ -311,6 +357,7 @@ grpop() {
     X86_OP2[$m2]="$o2"
 }
 
+# Setup opcodes
 grp1=(ADD OR ADC SBB AND SUB XOR CMP)
 grp2=(ROL ROR RCL RCR SHL SHR SAL SAR)
 grp3=(TEST TEST NOT NEG MUL IMUL DIV IDIV)
@@ -335,6 +382,9 @@ for i in {0..7}; do
   setop $((0xb8+i)) MOV gv Iv
   setop $((0x90+i)) XCHG gv rvAX
 
+  # 8088 60-6F are same as 70-7F
+  setop $((0x60+i)) JCC Jb
+  setop $((0x68+i)) JCC Jb
   setop $((0x70+i)) JCC Jb
   setop $((0x78+i)) JCC Jb
 done
@@ -465,31 +515,56 @@ setop 0xff GRP5 Ev __ MRR # INC Ev/DEC Ev
 grpop 0xfe 3 Mp __
 grpop 0xff 5 Mp __
 
+# 386-specific opcodes
 add386() {
-    addr_mask=0xffffff
+    addr_mask=0xfffffff
     setop 0x64 SEG rFS
     setop 0x65 SEG rGS
     setop 0x66 OSZ
     setop 0x67 ASZ
+    setop 0x68 PUSH Iv
+    setop 0x69 IMUL Gv Ev MRR # Gv Ev Ib
+    setop 0x6A PUSH Ib
+    setop 0x6B IMUL Gv Ev MRR # Gv Ev Iv
+    setop 0x6C INS Yb rDX
+    setop 0x6D INS Yv rDX
+    setop 0x6E OUTS rDX Xb
+    setop 0x6F OUTS rDX Xv
     setop 0xC8 ENTER Iw Ib
     setop 0xC9 LEAVE
     setop 0xFA0 PUSH rFS
     setop 0xFA1 POP rFS
+    setop 0xFA3 BT Ev Gv MRR
+    setop 0xFA4 SHLD Ev Gv MRR
+    setop 0xFA5 SHLD Ev Gv MRR
     setop 0xFA8 PUSH rGS
     setop 0xFA9 POP rGS
-    setop 0xFB3 LSS Gv Mp
-    setop 0xFB5 LFS Gv Mp
-    setop 0xFB6 LGE Gv Mp
+    setop 0xFAB BTS Ev Gv MRR
+    setop 0xFAC SHRD Ev Gv MRR
+    setop 0xFAD SHRD Ev Gv MRR
+    setop 0xFAF IMUL Gv Ev MRR
+    setop 0xFB2 LSS Gv Mp MRR
+    setop 0xFB3 BTR Ev Gv MRR
+    setop 0xFB4 LFS Gv Mp MRR
+    setop 0xFB5 LGS Gv Mp MRR
+    setop 0xFB6 MOVZX Gv Eb MRR
+    setop 0xFB7 MOVZX Gv Ew MRR
+    setop 0xFBB BTC Ev Gv MRR
+    setop 0xFBC BSF Ev Gv MRR
+    setop 0xFBD BSR Gv Ev MRR
+    setop 0xFBE MOVSX Gv Eb MRR
+    setop 0xFBF MOVSX Gv Ew MRR
     for i in {0..7} ; do
 	setop $((0xF80+i)) JCC Jv
 	setop $((0xF88+i)) JCC Jv
+	setop $((0xF90+i)) SETCC Eb __ MRR
 	setop $((0xF98+i)) SETCC Eb __ MRR
     done
 }
 
 # Get segment base
 getseg() {
-    local __out=$1
+    local out=$1
     local vseg=$2
     local oseg=$3
     local lbl=$4
@@ -505,15 +580,15 @@ getseg() {
 	"seg 5") val=$(getreg 21 0xffff) ;;
 	*) echo "no seg $vseg $lbl" ; exit 0 ;;
     esac
-    printf -v "$__out" "0x%x" $val
+    printf -v "$out" "0x%x" $val
 }
 
 # Create register object with current value
 mkreg() {
-    local __out=$1
+    local out=$1
     local num=$2 mask=$3
     reg=$(getreg $num $mask)
-    printf -v "$__out" "reg $num $mask $reg"
+    printf -v "$out" "reg $num $mask $reg"
 }
 
 parity() {
@@ -533,9 +608,9 @@ add8() {
     local v2=$2
     # convert signed
     if [ $((v2 & 0x80)) -ne 0 ]; then
-	v2=$((v2 - 256))
+	v2=$(((v2 - 256) & 0xffff))
     fi
-    echo $((v1 + v2))
+    echo $(((v1 + v2) & 0xffff))
 }
 
 add16() {
@@ -546,21 +621,21 @@ add16() {
 
 # Create immediate
 mkimm() {
-    local __out=$1
+    local out=$1
     local v=$2
     local mask=$3
 
-    printf -v "$__out" "imm 0x%x $mask" $v
+    printf -v "$out" "imm 0x%x $mask" $v
 }
 
 # Create effective address
 mkea() {
-    local __out=$1
+    local out=$1
     local mrr=$2 mask=$3
     local mm=$(((mrr >> 6) & 3))
     local rrr=$((mrr & 7))
     if [[ $mm -eq 3 ]]; then
-	mkreg $__out $rrr $mask
+	mkreg $out $rrr $mask
 	return
     fi
     off=""
@@ -585,6 +660,7 @@ mkea() {
 	   ;;
 	7) off=$bx ;;
     esac
+    echo "base offset: $off"
     if [ $mm -eq 1 ] ; then
 	fetch8 IR
 	off=$(add8 $off $IR)
@@ -595,13 +671,13 @@ mkea() {
     
     # Segment override
     getseg val "$easeg" "$seg" "ea"
-    printf -v "$__out" "mem $val 0x%x $mask $mm $rrr" $off
+    printf -v "$out" "mem $val 0x%x $mask $mm $rrr" $off
 }
 
 # String operations. ES:DI, DS:SI
 # strop var seg index mask
 strop() {
-    local __out=$1 vs=$2 vo=$3 mask=$4
+    local out=$1 vs=$2 vo=$3 mask=$4
 
     # if no overriding seg, default to DS
     if [[ -z $vs ]] ; then
@@ -624,13 +700,13 @@ strop() {
     setreg $vo $((voff + delta)) $opsize
 
     # Memory address
-    printf -v "$__out" "mem 0x%.4x 0x%.4x 0x%.4x" $val $voff $mask
+    printf -v "$out" "mem 0x%.4x 0x%.4x 0x%.4x" $val $voff $mask
 }    
 
 # decode opcode args
 # opmrr is original opcode << 8 + MRR byte (or 00)
 decarg() {
-    local __out=$1
+    local out=$1
     local opmrr=$2 oparg=$3 mask=$4
     local ggg=$(((opmrr >> 3) & 7))
     local opg=$(((opmrr >> 8) & 7))
@@ -638,51 +714,51 @@ decarg() {
     # set mask on Gb/Eb etc to 0xff
     [[ $oparg == ?b* ]] && mask=0xff
     case $oparg in
-	rES) printf -v "$__out" "seg 0" ;;
-	rCS) printf -v "$__out" "seg 1" ;;
-	rSS) printf -v "$__out" "seg 2" ;;
-	rDS) printf -v "$__out" "seg 3" ;;
-	rFS) printf -v "$__out" "seg 4" ;;
-	rGS) printf -v "$__out" "seg 5" ;;
-	Sw)  printf -v "$__out" "seg ${ggg}" ;;
-	Xb | Xv) strop $__out "$seg" 6 $mask ;;  # <DS>:SI
-	Yb | Yv) strop $__out "seg 0" 7 $mask ;; # ES:DI
-	Gb | Gv) mkreg $__out ${ggg} $mask ;;
-	gb | gv) mkreg $__out $opg $mask ;;
-	Eb | Ew | Ev | Mp)  mkea $__out $opmrr $mask ;;
-	Ob | Ov) mkea $__out 0x6 $mask ;;
+	rES) printf -v "$out" "seg 0" ;;
+	rCS) printf -v "$out" "seg 1" ;;
+	rSS) printf -v "$out" "seg 2" ;;
+	rDS) printf -v "$out" "seg 3" ;;
+	rFS) printf -v "$out" "seg 4" ;;
+	rGS) printf -v "$out" "seg 5" ;;
+	Sw)  printf -v "$out" "seg ${ggg}" ;;
+	Xb | Xv) strop $out "$seg" 6 $mask ;;  # <DS>:SI
+	Yb | Yv) strop $out "seg 0" 7 $mask ;; # ES:DI
+	Gb | Gv) mkreg $out ${ggg} $mask ;;
+	gb | gv) mkreg $out $opg $mask ;;
+	Eb | Ew | Ev | Mp)  mkea $out $opmrr $mask ;;
+	Ob | Ov) mkea $out 0x6 $mask ;;
 	Jb)
 	    fetch8 IR
 	    local addr=$(add8 ${X86_REGS[15]} $IR)
-	    printf -v "$__out" "imm $addr 0xff"
+	    printf -v "$out" "imm $addr 0xff"
 	    ;;
 	Jv)
 	    fetchv
-	    printf -v "$__out" "imm 0x%x 0xffff" $((X86_REGS[15] + $IR))
+	    printf -v "$out" "imm 0x%x 0xffff" $((X86_REGS[15] + $IR))
 	    ;;
-	rCL) mkreg $__out 1 0xff ;;
-	rAL) mkreg $__out 0 0xff ;;
-	rvAX) mkreg $__out 0 $mask ;;
-	rDX) mkreg $__out 2 0xffff ;;
-	i1) mkimm $__out 1 $mask ;;
-	i3) mkimm $__out 3 $mask ;;
-	Ib) fetch8 IR ; mkimm $__out $IR $mask ;;
-	Iw) fetch16 IR; mkimm $__out $IR $mask ;;
-	Iv) fetchv ; mkimm $__out $IR $mask ;;
+	rCL) mkreg $out 1 0xff ;;
+	rAL) mkreg $out 0 0xff ;;
+	rvAX) mkreg $out 0 $mask ;;
+	rDX) mkreg $out 2 0xffff ;;
+	i1) mkimm $out 1 $mask ;;
+	i3) mkimm $out 3 $mask ;;
+	Ib) fetch8 IR ; mkimm $out $IR $mask ;;
+	Iw) fetch16 IR; mkimm $out $IR $mask ;;
+	Iv) fetchv ; mkimm $out $IR $mask ;;
 	Sb)
 	    # signed byte
 	    fetch8 IR
 	    if [ $((IR & 0x80)) != 0 ]; then
 		IR=$((IR | 0xFF00))
 	    fi
-	    mkimm $__out $IR 0xffff
+	    mkimm $out $IR 0xffff
 	    ;;
 	Ap)
 	    fetch16 IS
 	    fetch16 IR
-	    printf -v "$__out" "imm 0x%.4x%.4x 0xffff" $IR $IS
+	    printf -v "$out" "imm 0x%.4x%.4x 0xffff" $IR $IS
 	    ;;
-	*) printf -v "$__out" "$oparg" ;;
+	*) printf -v "$out" "$oparg" ;;
     esac
 }
 
@@ -703,14 +779,15 @@ execsz() {
 
 # get arg value
 execval() {
-    local oparg=($1)
+    local out=$1
+    local oparg=($2)
     case ${oparg[0]} in
 	reg)
 	    # reg num mask val
-	    echo "${oparg[3]}"
+	    printf -v "$out" "${oparg[3]}"
 	    ;;
 	imm)
-	    echo "${oparg[1]}"
+	    printf -v "$out" "${oparg[1]}"
 	    ;;
 	mem)
 	    # mem seg off mask mm rrr
@@ -718,19 +795,21 @@ execval() {
 	    local base=${oparg[1]}
 	    local am=${oparg[3]}
 	    if [[ $am -eq 0xff ]] ; then
-		read8 $base $off
+		read8 ED0 $base $off
+		printf -v $out "0x%.4x" $ED0
 	    elif [[ $am -eq 0xffff ]] ; then
-		read16 $base $off
+		read16 ED0 $base $off
+		printf -v $out "0x%.4x" $ED0
 	    elif [[ $am -eq 0xffffffff ]] ; then
-		ED0=$(read16 $base $((off + 0)))
-		ED1=$(read16 $base $((off + 2)))
-		printf "0x%.4x%.4x" $ED1 $ED0
+		read16 ED0 $base $((off + 0))
+		read16 ED1 $base $((off + 2))
+		printf -v $out "0x%.4x%.4x" $ED1 $ED0
 	    elif [[ $am -eq 0xffffffffffffffff ]] ; then
-		ED0=$(read16 $base $((off + 0)))
-		ED1=$(read16 $base $((off + 2)))
-		ED2=$(read16 $base $((off + 4)))
-		ED3=$(read16 $base $((off + 6)))
-		printf "0x%.4x%.4x%.4x%.4x" $ED3 $ED2 $ED1 $ED0
+		read16 ED0 $base $((off + 0))
+		read16 ED1 $base $((off + 2))
+		read16 ED2 $base $((off + 4))
+		read16 ED3 $base $((off + 6))
+		printf -v $out "0x%.4x%.4x%.4x%.4x" $ED3 $ED2 $ED1 $ED0
 	    fi
 	    ;;
 	seg)
@@ -738,16 +817,16 @@ execval() {
 	    case $cpu_type in
 		80386)
 		    local n=$((oparg[1] + 16))
-		    getreg $n 0xffff
+		    printf -v $out $(getreg $n 0xffff)
 		    ;;
 		*)
 		    local n=$(((oparg[1] & 0x3) + 16))
-		    getreg $n 0xffff
+		    printf -v $out $(getreg $n 0xffff)
 		    ;;
 	    esac
 	    ;;
 	*)
-	    echo 0x0
+	    printf -v $out 0x0
 	    ;;
     esac
 }
@@ -781,7 +860,7 @@ execset() {
 	    fi
 	    ;;
 	seg)
-	    case cpu_type in
+	    case $cpu_type in
 		80386)
 		    local n=$((oparg[1] + 16))
 		    setreg $n $val 0xffff
@@ -799,10 +878,14 @@ execset() {
 aluop() {
     local opfn=$1
     local s1="$2" s2="$3"
-    local v1="$(execval "$s1")"
-    local v2="$(execval "$s2")"
+    execval v1 "$s1"
+    execval v2 "$s2"
     local dest=$s1
 
+    if [[ $fault -ne 0 ]] ; then
+	echo "hazfault : $faultstr"
+	return
+    fi
     local ncf=0
     res="0xdeadbeef"
     printf "alu: $opfn %.4x %.4x\n" $v1 $v2
@@ -903,7 +986,7 @@ execop() {
     
     case $opfn in
 	MOVS | LODS | STOS)
-	    local v1="$(execval "$s2")"
+	    execval v1 "$s2"
 	    printf "osize=$osize $v1\n"
 	    execset "$s1" "$v1"
 	    if [[ -n "$rep" ]] ; then
@@ -940,8 +1023,9 @@ execop() {
 		fi
 	    fi
 	    ;;
-	MOV)
-	    execset "$s1" "$(execval "$s2")"
+	MOV | MOVZX)
+	    execval v1 "$s2"
+	    execset "$s1" "$v1"
 	    ;;
 	ADD|OR|ADC|SBB|AND|SUB|XOR|CMP|\
 	    ROL|ROR|RCL|RCR|SHL|SHR|SAL|SAR|\
@@ -949,11 +1033,26 @@ execop() {
 	    aluop $opfn "$s1" "$s2"
 	    ;;
 	MUL | IMUL)
-	    opgrp=$((opmrr & 0xFF00))
-	    local v2="$(execval "$s1")"
+	    opgrp=$((opmrr & 0xFFFF00))
+	    res=0
+	    if [[ $opgrp -eq 0x0FAF00 ]]; then
+		# Gv Ev
+		execval v1 "$s1"
+		execval v2 "$s2"
+		printf "mul %x %x %x\n" $v1 $v2 $res
+		signex v1 $v1 0xffff 0x8000
+		signex v2 $v2 0xffff 0x8000
+		res=$((v1 * v2))
+		printf "mul %x %x %x\n" $v1 $v2 $res
+		execset "$s1" $res 0xffff
+		SF=$(((res & 0x8000) != 0))
+		CF=$(((res & 0xFF00) != 0))
+		OF=$CF
+	    fi
 	    if [[ $opgrp -eq 0xF600 ]]; then
 		# AX = AL * eb
 		v1=$(getreg 0 0xff)
+		execval v2 "$s1"
 		if [[ $opfn == IMUL ]]; then
 		    signex v1 $v1 0xff 0x80
 		    signex v2 $v2 0xff 0x80
@@ -968,6 +1067,7 @@ execop() {
 	    if [[ $opgrp -eq 0xF700 ]]; then
 		# DX:AX = AX * Ev
 		v1=$(getreg 0 $osize)
+		execval v2 "$s1"
 		if [[ $opfn == IMUL ]]; then
 		    signex v1 $v1 0xffff 0x8000
 		    signex v2 $v2 0xffff 0x8000
@@ -985,7 +1085,7 @@ execop() {
 	    ;;
 	DIV)
 	    opgrp=$((opmrr & 0xFF00))
-	    local v2="$(execval "$s1")"
+	    execval v2 "$s1"
 	    if [[ $opgrp -eq 0xF600 ]]; then
 		# AH = AX % Eb
 		# AL = AX / Eb
@@ -1025,7 +1125,7 @@ execop() {
 	RET)
 	    popv v1
 	    setreg 15 $v1 $osize
-	    v1="$(execval "$s1")"
+	    execval v1 "$s1"
 	    if [[ $v1 -ne 0 ]]; then
 		local sp=$(getreg 4 $osize)
 		setreg 4 $((sp + v1)) $osize
@@ -1036,19 +1136,19 @@ execop() {
 	    popv cs
 	    setreg 15 co $osize
 	    setreg 17 cs 0xffff
-	    v1="$(execval "$s1")"
+	    execval v1 "$s1"
 	    if [[ $v1 -ne 0 ]]; then
 		local sp=$(getreg 4 $osize)
 		setreg 4 $((sp + v1)) $osize
 	    fi
 	    ;;
 	CALL)
-	    arg="$(execval "$s1")"
+	    execval arg "$s1"
 	    pushv $(getreg 15 0xffff) 0xffff
 	    setreg 15 $arg 0xffff
 	    ;;
 	CALLF)
-	    local arg="$(execval "$s1")"
+	    execval arg "$s1"
 	    local cseg=$((arg >> 16))
 	    local coff=$((arg & 0xFFFF))
 	    if [[ "$s1" == "mem "* ]] ; then
@@ -1060,11 +1160,11 @@ execop() {
 	    setreg 15 $coff 0xffff
 	    ;;
 	JMP)
-	    arg="$(execval "$s1")"
+	    execval arg "$s1"
 	    setreg 15 $arg 0xffff
 	    ;;
 	JMPF)
-	    arg="$(execval "$s1")"
+	    execval arg "$s1"
 	    local cseg=$((arg >> 16))
 	    local coff=$((arg & 0xFFFF))
 	    if [[ "$s1" == "mem "* ]] ; then
@@ -1077,30 +1177,49 @@ execop() {
 	    testcond $((opmrr >> 8))
 	    rc=$?
 	    if [ $rc = 0 ]; then
-		local arg="$(execval "$s1")"
+		execval arg "$s1"
 		echo "dojump $arg $s1"
 		setreg 15 $arg 0xffff
 	    fi
 	    ;;
-	LDS | LES)
+	SETCC)
+	    testcond $((opmrr >> 8))
+	    rc=$?
+	    execset "$s1" $((1-rc))
+	    ;;
+	LDS | LES | LSS | LFS | LGS)
 	    local oparg=($s2)
 	    local pseg=${oparg[1]}
 	    local pofs=${oparg[2]}
-	    coff=$(read16 $pseg $pofs)
-	    cseg=$(read16 $pseg $((pofs + 2)))
-	    echo "read pointer $cseg $coff"
-	    case $opfn in
-		LDS)
-		    setreg 19 $cseg 0xffff
+	    read16 coff $pseg $pofs
+	    read16 cseg $pseg $((pofs + 2))
+	    echo "read pointer $pseg $pofs $cseg $coff $fault"
+	    if [[ $fault != 0 ]]; then
+		echo "GPF"
+		vector 0x0d
+	    else
+		case $opfn in
+		    LES)
+			setreg 16 $cseg 0xffff
+			;;
+		    LSS)
+			setreg 17 $cseg 0xffff
+			;;
+		    LDS)
+			setreg 19 $cseg 0xffff
+			;;
+		    LFS)
+			setreg 20 $cseg 0xffff
+			;;
+		    LGS)
+		    setreg 21 $cseg 0xffff
 		    ;;
-		LES)
-		    setreg 16 $cseg 0xffff
-		    ;;
-	    esac
-	    execset "$s1" $coff
+		esac
+		execset "$s1" $coff
+	    fi
 	    ;;
 	LOOP | LOOPZ | LOOPNZ | JCXZ)
-	    local v1=$(execval "$s1")
+	    execval lz "$s1"
 	    local cx=$(getreg 1 $osize)
 	    local pc=$(getreg 15 $osize)
 	    case $opfn in
@@ -1110,7 +1229,7 @@ execop() {
 		    if [[ $cx -ne 0 ]] ; then
 			# do jump
 			echo loop
-			pc=$v1
+			setreg 15 $lz 0xffff
 		    fi
 		    ;;
 		LOOPZ)
@@ -1118,7 +1237,7 @@ execop() {
 		    setreg 1 $cx $osize
 		    if [[ $cx -ne 0 && ZF -eq 1 ]] ; then
 			echo loop
-			pc=$v1
+			setreg 15 $lz 0xffff
 		    fi
 		    ;;
 		LOOPNZ)
@@ -1126,20 +1245,19 @@ execop() {
 		    setreg 1 $cx $osize
 		    if [[ $cx -ne 0 && ZF -eq 0 ]] ; then
 			echo loop
-			pc=$v1
+			setreg 15 $lz 0xffff
 		    fi
 		    ;;
 		JCXZ)
 		    if [[ $cx -eq 0 ]]; then
-			pc=$v1
+			setreg 15 $lz 0xffff
 		    fi
 		    ;;
 	    esac
-	    setreg 15 $pc 0xffff
 	    ;;
 	XCHG)
-	    local v1=$(execval "$s1")
-	    local v2=$(execval "$s2")
+	    execval v1 "$s1"
+	    execval v2 "$s2"
 	    execset "$s1" "$v2"
 	    execset "$s2" "$v1"
 	    ;;
@@ -1169,7 +1287,7 @@ execop() {
 	LOCK)
 	    printf "lock pc: %x\n" $(getreg 15 0xffff)
 	    pfx=1
-	    lock=$((X86_REGS[15]-1))
+	    lock=1
 	    ;;
 	CBW)
 	    ax=${X86_REGS[0]}
@@ -1203,7 +1321,7 @@ execop() {
 	    fi
 	    ;;
 	PUSH)
-	    local v1="$(execval "$s1")"
+	    execval v1 "$s1"
 	    if [[ $s1 == "reg 4 "* ]];then
 		# push SP special case
 		pushv $v1 $osize "1"
@@ -1215,6 +1333,7 @@ execop() {
 	    popv v1 
 	    printf "popping.... $v1\n"
 	    execset "$s1" $v1
+	    showregs
 	    ;;
 	LAHF)
 	    local ah=$(((SF << 7) | (ZF << 6) | (AF << 4) | (PF << 2) | 0x2 | CF))
@@ -1239,7 +1358,7 @@ execop() {
 	    SF=$(((ah & 0x80) != 0))
 	    ;;
 	INT)
-	    local v1="$(execval "$s1")"
+	    execval v1 "$s1"
 	    vector $v1
 	    ;;
 	INTO)

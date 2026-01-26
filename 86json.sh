@@ -133,16 +133,22 @@ loadfile() {
 	rep=""
 	lock=""
 	seg=""
+	fault=0
 	osize=0xffff
 	asize=0xffff
 	mask=0xffff
 	if [[ $cpu_type == 80386 ]] ; then
 	    echo "32-bit"
 	fi
+	spc=$(getreg 15 0xffff)
 	while [ $pfx -eq 1 ]; do
 	    pfx=0
 	    fetch8 opcode
-	    printf "opcode is ${opcode} %x\n" ${X86_REGS[15]}
+	    if [[ $cpu_type == 80386 && $opcode -eq 0xf ]]; then
+		fetch8 lo
+		opcode=$((opcode * 256 + lo))
+	    fi
+	    printf "opcode is 0x%x %x\n" $opcode ${X86_REGS[15]}
 	    decode $opcode
 	done
 	if [[ $cpu_type == 80386 ]] ; then
