@@ -535,13 +535,13 @@ add386() {
     setop 0xFA0 PUSH rFS
     setop 0xFA1 POP rFS
     setop 0xFA3 BT Ev Gv MRR
-    setop 0xFA4 SHLD Ev Gv MRR
-    setop 0xFA5 SHLD Ev Gv MRR
+    setop 0xFA4 SHLD Ev Gv MRR # Ev Gv Ib
+    setop 0xFA5 SHLD Ev Gv MRR # Ev Gv rCL
     setop 0xFA8 PUSH rGS
     setop 0xFA9 POP rGS
     setop 0xFAB BTS Ev Gv MRR
-    setop 0xFAC SHRD Ev Gv MRR
-    setop 0xFAD SHRD Ev Gv MRR
+    setop 0xFAC SHRD Ev Gv MRR # Ev Gv Ib
+    setop 0xFAD SHRD Ev Gv MRR # Ev Gv rCL
     setop 0xFAF IMUL Gv Ev MRR
     setop 0xFB2 LSS Gv Mp MRR
     setop 0xFB3 BTR Ev Gv MRR
@@ -890,6 +890,11 @@ aluop() {
     res="0xdeadbeef"
     printf "alu: $opfn %.4x %.4x\n" $v1 $v2
     smask=$(execsz "$s1")
+    if [[ $smask -eq 0xffffffffffffffff ]] ; then
+	sgn=0x8000000000000000
+    else
+	sgn=$(printf "0x%x" $((smask - (smask >> 1))))
+    fi
     case $opfn in
 	SUB) res=$((v1 - v2)) ; ncf=2 ;;
 	ADD) res=$((v1 + v2)) ; ncf=1 ;;
@@ -904,15 +909,13 @@ aluop() {
 	OR)  res=$((v1 | v2)) ;;
 	TEST) dest="" ; res=$((v1 & v2)) ;;
 	CMP)  dest="" ; res=$((v1 - v2)) ; ncf=2 ;;
-	SHL|SAL) res=$((v1 << v2)) ;;
-	SHR) res=$((v1 >> v2)) ;;
+	SHL|SAL)
+	    res=$((v1 << v2))
+	    ;;
+	SHR)
+	    res=$((v1 >> v2))
+	    ;;
     esac
-
-    if [[ $smask -eq 0xffffffffffffffff ]] ; then
-	sgn=0x8000000000000000
-    else
-	sgn=$(printf "0x%x" $((smask - (smask >> 1))))
-    fi
     res=$((res & smask))
 
     printf "result is:[$dest] [%d:%.4x] [%.4x] %.4x\n" $res $res $mask $sgn
@@ -1027,10 +1030,47 @@ execop() {
 	    execval v1 "$s2"
 	    execset "$s1" "$v1"
 	    ;;
+	MOVSX)
+	    execval v1 "$s2"
+	    opgrp=$((opmrr & 0xFFFF00))
+	    if [[ $opgrp -eq 0xfbe00 ]] ; then
+		signex v1 $v1 0xff 0x80
+	    fi
+	    if [[ $opgrp -eq 0x0fbf00 ]] ; then
+		signex v1 $v1 0xffff 0x8000
+	    fi
+	    printf "moo 0x%x 0x%x\n" $opgrp $v1
+	    execset "$s1" "$v1"
+	    ;;
 	ADD|OR|ADC|SBB|AND|SUB|XOR|CMP|\
 	    ROL|ROR|RCL|RCR|SHL|SHR|SAL|SAR|\
 	    TEST|INC|DEC|NEG|NOT)
 	    aluop $opfn "$s1" "$s2"
+	    ;;
+	SHLD | SHRD)
+	    opgrp=$((opmrr & 0xFFFF00))
+	    execval v1 "$s1"
+	    execval v2 "$s2"
+	    if [[ $opgrp -eq 0x0FA400 || $opgrp -eq 0x0FAC00 ]] ; then
+		fetch8 v3
+	    fi
+	    if [[ $opgrp -eq 0x0FA500 || $opgrp -eq 0x0FAD00 ]] ; then
+		v3=$(getreg 1 0xff)
+	    fi
+	    v3=$((v3 & 0x1F))
+	    if [[ "$opfn" == "SHLD" ]]; then
+		res=$((v1 << v3))
+		printf "res %x\n" $res
+		res=$((res + ((v2 >> (16-v3)))))
+		printf "res %x\n" $res
+		ssgn=0x8000
+		smsk=0xffff
+		ZF=$(((res & smask) == 0))
+		SF=$(((res & ssgn) != 0))
+		PF=$(parity $res)
+	    fi
+	    printf "$opfn %.8x %.8x %.8x %.2x -> %.8x\n" $opgrp $v1 $v2 $v3 $res
+	    execset "$s1" $res
 	    ;;
 	MUL | IMUL)
 	    opgrp=$((opmrr & 0xFFFF00))
