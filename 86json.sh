@@ -177,5 +177,6 @@ while getopts "v32" opt; do
     esac
 done
 shift $((OPTIND - 1))
+showtbl
 
 loadfile $1

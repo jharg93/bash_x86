@@ -232,13 +232,13 @@ popv() {
     local ss=${X86_REGS[18]}
     case $osize in
 	0xffff)
-	    setreg 4 $((sp + 2)) 0xffff
 	    read16 N $ss $sp 0x0c
-	    printf "pop16 $fault\n"
+	    printf "pop16 $N $fault\n"
 	    printf -v "$out" "0x%x" $N
 	    if [[ $fault -ne 0 ]] ; then
-		setreg 4 $sp 0xffff
-		vector 0xc
+		vector 0xc $spc
+	    else
+		setreg 4 $((sp + 2)) 0xffff
 	    fi
 	    ;;
 	0xffffffff)
@@ -281,6 +281,7 @@ getreg() {
 
 vector() {
     local vector=$1
+    local vpc=$2
     read16 ncs 0x0 $((vector * 4 + 2))
     read16 npc 0x0 $((vector * 4 + 0))
 
@@ -288,8 +289,8 @@ vector() {
     printf "int 0x%x 0x%x\n" $ncs $npc
     pushv $(getreg 14 0xffff) 0xffff # flags
     pushv $(getreg 17 0xffff) 0xffff # cs
-    printf "ip : 0x%x\n" $spc
-    pushv $spc 0xffff # ip
+    printf "ip : 0x%x\n" $vpc
+    pushv $vpc 0xffff # ip
 
     setreg 17 $ncs 0xffff
     setreg 15 $npc $osize
@@ -518,6 +519,10 @@ grpop 0xff 5 Mp __
 # 386-specific opcodes
 add386() {
     addr_mask=0xfffffff
+    setop 0x60 PUSHA
+    setop 0x61 POPA
+    setop 0x62 BOUND Gv Mp MRR
+    setop 0x63 ARPL Ew Rw MRR
     setop 0x64 SEG rFS
     setop 0x65 SEG rGS
     setop 0x66 OSZ
@@ -562,12 +567,28 @@ add386() {
     done
 }
 
+showtbl() {
+    for X in {0..256}; do
+	printf "%-5.5s " "${X86_MNEM[$X]}"
+	if [[ $((X & 0xF)) -eq 0x0f ]] ; then
+	    printf "\n"
+	fi
+    done
+    for X in {3840..4095}; do
+	printf "%-5.5s " "${X86_MNEM[$X]}"
+	if [[ $((X & 0xF)) -eq 0x0f ]] ; then
+	    printf "\n"
+	fi
+    done
+}
+
 # Get segment base
 getseg() {
     local out=$1
     local vseg=$2
     local oseg=$3
     local lbl=$4
+    printf "vseg is $vseg:$seg"
     if [ -n "$oseg" ] ; then
 	vseg=$oseg
     fi
@@ -580,6 +601,7 @@ getseg() {
 	"seg 5") val=$(getreg 21 0xffff) ;;
 	*) echo "no seg $vseg $lbl" ; exit 0 ;;
     esac
+    printf "vseg is %x\n" $val
     printf -v "$out" "0x%x" $val
 }
 
@@ -591,6 +613,7 @@ mkreg() {
     printf -v "$out" "reg $num $mask $reg"
 }
 
+# Parity calc
 parity() {
     local v1=$(($1 & 0xFF))
     v=$v1
@@ -599,7 +622,6 @@ parity() {
     ((v ^= v >> 1))
     (((v & 1)))
     rc=$?
-    echo "parity $v1 $rc" >> .parity
     echo $rc
 }
 
@@ -692,7 +714,8 @@ strop() {
     delta=1
     [ $mask == 0xffff ] && delta=2
     [ $mask == 0xffffffff ] && delta=4
-
+    [ $mask == 0xffffffffffffffff ] && delta=8
+    
     # Check DF flag
     [ $DF != 0 ] && delta=$((-delta))
 
@@ -1016,10 +1039,12 @@ execop() {
 		if [[ $cx -ne 0 ]]; then
 		    cx=$(((cx - 1) & $osize))
 		    setreg 1 $cx $osize
+
+		    # default to loop then turn off
 		    pfx=1
 		    [[ $cx -eq 0 ]] && pfx=0
-		    [[ "$rep" == "repz" && ZF -eq 0 ]] && pfx=0
-		    [[ "$rep" == "repnz" && ZF -eq 1 ]] && pfx=0
+		    [[ "$rep" == "repz" && $ZF == 0 ]] && pfx=0
+		    [[ "$rep" == "repnz" && $ZF == 1 ]] && pfx=0
 		    if [[ $pfx -ne 0 ]] ; then
 			setreg 15 $((pc - 1)) $osize
 		    fi
@@ -1231,8 +1256,17 @@ execop() {
 	    local oparg=($s2)
 	    local pseg=${oparg[1]}
 	    local pofs=${oparg[2]}
-	    read16 coff $pseg $pofs
-	    read16 cseg $pseg $((pofs + 2))
+	    if [[ $osize -eq 0xffff ]]; then
+		echo "o16"
+		read16 coff $pseg $pofs
+		read16 cseg $pseg $((pofs + 2))
+	    fi
+	    if [[ $osize -eq 0xffffffff ]]; then
+		read16 cofL $pseg $pofs
+		read16 cofH $pseg $((pofs + 2))
+		read16 cseg $pseg $((pofs + 4))
+		coff=$(((cofH << 16) + cofL))
+	    fi
 	    echo "read pointer $pseg $pofs $cseg $coff $fault"
 	    if [[ $fault != 0 ]]; then
 		echo "GPF"
@@ -1258,42 +1292,33 @@ execop() {
 		execset "$s1" $coff
 	    fi
 	    ;;
-	LOOP | LOOPZ | LOOPNZ | JCXZ)
+	LOOP | LOOPZ | LOOPNZ)
 	    execval lz "$s1"
 	    local cx=$(getreg 1 $osize)
 	    local pc=$(getreg 15 $osize)
-	    case $opfn in
-		LOOP)
-		    cx=$(((cx - 1) & $osize))
-		    setreg 1 $cx $osize
-		    if [[ $cx -ne 0 ]] ; then
-			# do jump
-			echo loop
+	    cx=$(((cx - 1) & $osize))
+	    setreg 1 $cx $osize
+	    if (( $cx != 0 )) ; then
+		case $opfn in
+		    LOOP)
 			setreg 15 $lz 0xffff
-		    fi
-		    ;;
-		LOOPZ)
-		    cx=$(((cx - 1) & $osize))
-		    setreg 1 $cx $osize
-		    if [[ $cx -ne 0 && ZF -eq 1 ]] ; then
-			echo loop
-			setreg 15 $lz 0xffff
-		    fi
-		    ;;
-		LOOPNZ)
-		    cx=$(((cx - 1) & $osize))
-		    setreg 1 $cx $osize
-		    if [[ $cx -ne 0 && ZF -eq 0 ]] ; then
-			echo loop
-			setreg 15 $lz 0xffff
-		    fi
-		    ;;
-		JCXZ)
-		    if [[ $cx -eq 0 ]]; then
-			setreg 15 $lz 0xffff
-		    fi
-		    ;;
-	    esac
+			;;
+		    LOOPZ)
+			(( ZF == 1 )) && setreg 15 $lz 0xffff
+			;;
+		    LOOPNZ)
+			(( ZF == 0 )) && setreg 15 $lz 0xffff
+			;;
+		esac
+	    fi
+	    ;;
+	JCXZ)
+	    execval lz "$s1"
+	    local cx=$(getreg 1 $osize)
+	    local pc=$(getreg 15 $osize)
+	    if (( $cx == 0 )); then
+		setreg 15 $lz 0xffff
+	    fi
 	    ;;
 	XCHG)
 	    execval v1 "$s1"
@@ -1316,13 +1341,13 @@ execop() {
 	SEG)
 	    # segment override prefix
 	    pfx=1
-	    echo "seg pfx $s1"
 	    seg="$s1"
+	    echo "seg pfx $seg"
 	    ;;
 	REP)
 	    pfx=1
-	    echo "rep pfx $1"
 	    rep="$s1"
+	    echo "rep pfx $rep"
 	    ;;
 	LOCK)
 	    printf "lock pc: %x\n" $(getreg 15 0xffff)
@@ -1399,10 +1424,31 @@ execop() {
 	    ;;
 	INT)
 	    execval v1 "$s1"
-	    vector $v1
+	    vector $v1 ${X86_REGS[15]}
 	    ;;
 	INTO)
-	    [[ OF ]] && vector 0x4
+	    (( OF == 1 )) && vector 0x4 ${X86_REGS[15]}
+	    ;;
+	IRET)
+	    popv npc
+	    setreg 15 $npc $osize
+	    popv ncs
+	    setreg 17 $ncs 0xffff
+	    popv nflag
+	    setreg 14 $nflag 0xfd5
+	    getflags
+	    ;;
+	XLAT)
+	    # al=seg:[bx+al]
+	    local v1=$(getreg 3 0xffff)
+	    local v2=$(getreg 0 0xff)
+	    local xoff=$(((v1 + v2) & 0xffff))
+	    getseg xseg "seg 3" "$seg" "xlat"
+	    read8 XL $xseg $xoff
+	    setreg 0 $XL 0xff
+	    ;;
+	SALC)
+	    setreg 0 $((CF*255)) 0xff
 	    ;;
 	IN)
 	    # hack return set bits
