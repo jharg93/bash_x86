@@ -168,7 +168,7 @@ loadtsv() {
 		# initial.mem
 		X86_MEM[$key]=$val
 		if [ $verbose != 0 ] ; then
-		    printf "$addr <- %x [${X86_MEM[$key]}]\n" $val
+		    printf "$key <- %x [${X86_MEM[$key]}]\n" $val
 		fi
 		;;
 	    EXEC)
@@ -183,10 +183,10 @@ loadtsv() {
 		    mv=0
 		fi
 		if [ $verbose != 0 ] ; then
-		    printf "$addr <- %x [${X86_MEM[$key]}]\n" $val
+		    printf "$key <- %x [${X86_MEM[$key]}]\n" $val
 		fi
 		if [ "$mv" -ne "$val" ]; then
-		    printf "mismatch: mem $addr %x [got: %x]\n" $val $mv
+		    printf "mismatch: mem $key %x [got: %x]\n" $val $mv
 		fi
 		;;
 	esac
