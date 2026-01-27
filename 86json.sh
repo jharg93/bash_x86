@@ -116,6 +116,83 @@ parsemem() {
     done < .input.$$
 }
 
+execone() {
+    # Load Flags
+    getflags
+    printf " %x OF=$OF SF=$SF ZF=$ZF AF=$AF PF=$PF CF=$CF DF=$DF IF=$IF seg=$seg\n" ${X86_REGS[14]}
+
+    # Loop while prefix set
+    pfx=1
+    rep=""
+    lock=""
+    seg=""
+    fault=0
+    osize=0xffff
+    asize=0xffff
+    mask=0xffff
+    if [[ $cpu_type == 80386 ]] ; then
+	echo "32-bit"
+    fi
+    spc=$(getreg 15 0xffff)
+    while [ $pfx -eq 1 ]; do
+	pfx=0
+	fetch8 opcode
+	if [[ $cpu_type == 80386 && $opcode -eq 0xf ]]; then
+	    fetch8 lo
+	    opcode=$((opcode * 256 + lo))
+	fi
+	printf "opcode is 0x%x %x\n" $opcode ${X86_REGS[15]}
+	decode $opcode
+    done
+    if [[ $cpu_type == 80386 ]] ; then
+	fetch8 prefetch
+    fi
+    echo "---- done"
+    setflags
+}
+
+# Faster TSV load
+loadtsv() {
+    local file=$1
+    while IFS=$'\t' read -r tag key val ; do
+	case $tag in
+	    ROW)
+	    # start over
+		printf "====== row [$key]\n"
+		;;
+	    IR)
+		# initial.regs
+		check "$key" "$val" 1
+		;;
+	    IM)
+		# initial.mem
+		X86_MEM[$key]=$val
+		if [ $verbose != 0 ] ; then
+		    printf "$addr <- %x [${X86_MEM[$key]}]\n" $val
+		fi
+		;;
+	    EXEC)
+		execone
+		;;
+	    FR)
+		check "$key" "$val" 0
+		;;
+	    FM)
+		mv=${X86_MEM[$key]}
+		if [ -z "$mv" ]; then
+		    mv=0
+		fi
+		if [ $verbose != 0 ] ; then
+		    printf "$addr <- %x [${X86_MEM[$key]}]\n" $val
+		fi
+		if [ "$mv" -ne "$val" ]; then
+		    printf "mismatch: mem $addr %x [got: %x]\n" $val $mv
+		fi
+		;;
+	esac
+    done < $file
+}
+
 # Scan json for initial
 loadfile() {
     local file=$1
@@ -124,37 +201,7 @@ loadfile() {
 	parseregs "$j" 1 ".initial.regs"
 	parsemem "$j" 1 ".initial.ram"
 
-	# Load Flags
-	getflags
-	printf " %x OF=$OF SF=$SF ZF=$ZF AF=$AF PF=$PF CF=$CF DF=$DF IF=$IF seg=$seg\n" ${X86_REGS[14]}
-
-	# Loop while prefix set
-	pfx=1
-	rep=""
-	lock=""
-	seg=""
-	fault=0
-	osize=0xffff
-	asize=0xffff
-	mask=0xffff
-	if [[ $cpu_type == 80386 ]] ; then
-	    echo "32-bit"
-	fi
-	spc=$(getreg 15 0xffff)
-	while [ $pfx -eq 1 ]; do
-	    pfx=0
-	    fetch8 opcode
-	    if [[ $cpu_type == 80386 && $opcode -eq 0xf ]]; then
-		fetch8 lo
-		opcode=$((opcode * 256 + lo))
-	    fi
-	    printf "opcode is 0x%x %x\n" $opcode ${X86_REGS[15]}
-	    decode $opcode
-	done
-	if [[ $cpu_type == 80386 ]] ; then
-	   fetch8 prefetch
-	fi
-	setflags
+	execone
 
 	# Read final regso
 	parseregs "$j" 0 ".final.regs"
@@ -177,6 +224,10 @@ while getopts "v32" opt; do
     esac
 done
 shift $((OPTIND - 1))
-showtbl
 
-loadfile $1
+file=$1
+if [[ $file == *.tsv ]] ; then
+    loadtsv $file
+else
+    loadfile $1
+fi
