@@ -4,6 +4,7 @@
 #
 # used this as a guide for undocumented instructions:
 # https://www.righto.com/2023/07/undocumented-8086-instructions.html
+# https://gchq.github.io/CyberChef/#recipe=Disassemble_x86('16','Full%20x86%20architecture',8,0,true,true)&input=NjcgRjcgODQgQzIgNzcgMDIgMDAgMDAg&oeol=CRLF
 # 
 # 00 0x0000     | 0x00      | Divide by 0
 # 16 0x0010     | 0x04      | Overflow (INTO)
@@ -14,15 +15,23 @@
 declare -a X86_MNEM
 declare -a X86_OP1
 declare -a X86_OP2
+declare -a X86_OP3
 declare -a X86_ENC
 declare -a X86_REGS
 declare -a X86_MEM
+
+tsv_seg=0
+tsv_off=0
 
 fault=0
 lock=0
 verbose=0
 cpu_type=8088
 addr_mask=0xfffff
+
+MRR=0x1
+LCK=0x2
+SPC=0x4
 
 showregs() {
     for i in `seq 0 20`; do
@@ -81,37 +90,32 @@ setflags() {
     X86_REGS[14]=$(((X86_REGS[14] & ~N) | nf))
 }
 
-# Allow reference register by name or #
-subreg() {
-    local -n rnum=$1
-    local sn=$rnum
-    case $num in
-	AX) rnum=0 ;;
-	CX) rnum=1 ;;
-	DX) rnum=2 ;;
-	BX) rnum=3 ;;
-	SP) rnum=4 ;;
-	BP) rnum=5 ;;
-	SI) rnum=6 ;;
-	DI) rnum=7 ;;
-	FLAGS) rnum=14 ;;
-	IP) rnum=15 ;;
-	ES) rnum=16 ;;
-	CS) rnum=17 ;;
-	SS) rnum=18 ;;
-	DS) rnum=19 ;;
-	FS) rnum=20 ;;
-	GS) rnum=21 ;;
-    esac
-}
-
 # Set register value
 setreg() {
-    local num=$1 val=$2 mask=$3
+    local num=$1 val="$2" mask="$3" lbl=$4
     if [[ -z $mask ]] ; then
 	mask=0xffffffff
+	exit 1
     fi
-    subreg num
+    local xnum=$num
+    case $num in
+	AX) num=0 ;;
+	CX) num=1 ;;
+	DX) num=2 ;;
+	BX) num=3 ;;
+	SP) num=4 ;;
+	BP) num=5 ;;
+	SI) num=6 ;;
+	DI) num=7 ;;
+	FLAGS) num=14 ;;
+	IP) num=15 ;;
+	ES) num=16 ;;
+	CS) num=17 ;;
+	SS) num=18 ;;
+	DS) num=19 ;;
+	FS) num=20 ;;
+	GS) num=21 ;;
+    esac
     val=$((val & mask))
     if [[ mask -eq 0xff && $num -ge 4 ]]; then
 	# special case for AH/BH/CH/DH
@@ -119,14 +123,32 @@ setreg() {
 	val=$((val << 8))
 	num=$((num - 4))
     fi
-    printf "setreg $num %.4x $mask\n" $val
+#    printf "setreg $num %.4x $mask [$lbl]\n" $val
     X86_REGS[$num]=$(((X86_REGS[num] & ~mask) | val))
 }
 
 # Get register value
 getreg() {
     local num=$1 mask=$2
-    subreg num
+    local xnum=$num
+    case $num in
+	AX) num=0 ;;
+	CX) num=1 ;;
+	DX) num=2 ;;
+	BX) num=3 ;;
+	SP) num=4 ;;
+	BP) num=5 ;;
+	SI) num=6 ;;
+	DI) num=7 ;;
+	FLAGS) num=14 ;;
+	IP) num=15 ;;
+	ES) num=16 ;;
+	CS) num=17 ;;
+	SS) num=18 ;;
+	DS) num=19 ;;
+	FS) num=20 ;;
+	GS) num=21 ;;
+    esac
     if [[ mask -eq 0xff && $num -ge 4 ]]; then
 	# special case for AH/BH/CH/DH
 	printf "0x%x" $(((X86_REGS[num - 4] >> 8) & mask))
@@ -145,8 +167,8 @@ checkmem() {
     fi
 
     # GP or SS
-    if [[ $cpu_type == 80386 && $co -gt 0xffff ]]; then
-	printf "fault 0x%x\n" $co
+    if [[ $cpu_type == 80386 && $co -gt 0xffff && $co -lt 0xfffff ]]; then
+	printf "fault checkmem 0x%x $vect\n" $co
 	fault=$vect
     fi
 }
@@ -158,8 +180,8 @@ fetch8() {
     local cs=${X86_REGS[17]}
     local addr=$(((cs * 16 + pc) & $addr_mask))
     local v=${X86_MEM[$addr]}
-    printf "fetch %d %x [%.2x]\n" $addr $addr $v
-    X86_REGS[15]=$(((pc+1) & 0xffff))
+    printf "fetch  %d %.8x off=%.8x [%.2x]\n" $addr $addr $off $v
+    setreg IP $((pc+1)) 0xffffffff "fetch8"
     printf -v "$out" "0x%.2x" $v
 }
 
@@ -173,7 +195,6 @@ fetch16() {
 
 # fetch 16/32/64
 fetchv() {
-    local LO=0 HI=0
     case $osize in
 	0xffff)
 	    fetch16 IR
@@ -199,8 +220,9 @@ read8() {
     local off=$3
     checkmem $((off + 0))
     local base=$(($2 * 16))
-    local addr=$(((base + (off + 0 & 0xffff)) & $addr_mask))
+    local addr=$(((base + (off + 0)) & $addr_mask))
     local v=${X86_MEM[$addr]}
+    printf "read %d %.8x off=%.8x [%.2x]\n" $addr $addr $off $v
     printf -v "$out" "0x%x" $v
 }
 
@@ -254,26 +276,24 @@ loadptr() {
 pushv() {
     local val=$1
     local mask=$2
-    local issp=$3
+    local lbl=$3
+    
     local sp=${X86_REGS[4]}
     local ss=${X86_REGS[18]}
+    printf "pushv 0x%x 0x%x %x [%s]\n" $sp $val $mask $lbl
     case $mask in
 	0xffff)
 	    sp=$(((sp - 2) & 0xffff))
-	    setreg SP $sp 0xffff
+	    setreg SP $sp 0xffff "pushw.sp"
 	    # 8088 push sp saves new value
-	    if [ -n "$issp" ]; then
-		write16 $ss $sp $sp
-	    else
-		write16 $ss $sp $val
-	    fi
+	    write16 $ss $sp $val
 	    ;;
 	0xffffffff)
 	    sp=$(((sp - 2) & 0xffffffff))
 	    write16 $ss $sp $((val >> 16))
 	    sp=$(((sp - 2) & 0xffffffff))
 	    write16 $ss $sp $val
-	    setreg SP $sp 0xffffffff
+	    setreg SP $sp 0xffffffff "pushd.sp"
 	    ;;
     esac
 }
@@ -292,7 +312,7 @@ popv() {
 		vector 0xc $spc
 		fault=0
 	    else
-		setreg SP $((sp + 2)) 0xffff
+		setreg SP $((sp + 2)) 0xffff "popw.sp"
 	    fi
 	    ;;
 	0xffffffff)
@@ -300,43 +320,44 @@ popv() {
 	    sp=$(((sp + 2) & 0xffffffff))
 	    read16 PH $ss $sp 0x0c
 	    sp=$(((sp + 2) & 0xffffffff))
-	    setreg SP $sp $osize
+	    setreg SP $sp $osize "popd.sp"
 	    printf "pop32\n"
 	    printf -v "$out" "0x%.4x%.4x" $PH $PL
 	    ;;
     esac
 }
 
+# 0x6 = UD2
+# 0xc = SS
+# 0xd = GPF
 vector() {
-    local vector=$1
+    local vec=$1
     local vpc=$2
-    read16 ncs 0x0 $((vector * 4 + 2))
-    read16 npc 0x0 $((vector * 4 + 0))
+    read16 ncs 0x0 $((vec * 4 + 2))
+    read16 npc 0x0 $((vec * 4 + 0))
 
+    if [[ -z "$vpc" ]] ; then
+	vpc=$spc
+    fi
+    if (( $ncs == 0 || $npc == 0 )) ; then
+	echo "ZERO VECTOR"
+	exit 1
+    fi
+    printf "vector: $vec 0x%x 0x%x\n" $ncs $npc
     setflags
-    printf "int [$vector] 0x%x 0x%x\n" $vector $ncs $npc 
-    pushv $(getreg FLAGS 0xffff) 0xffff # flags
-    pushv $(getreg CS 0xffff) 0xffff # cs
-    printf "ip : 0x%x\n" $vpc
-    pushv $vpc 0xffff # ip
+    pushv $(getreg FLAGS 0xffff) 0xffff "flags"
+    pushv $(getreg CS 0xffff) 0xffff "cs"
+    pushv $vpc 0xffff "ip"
 
-    setreg CS $ncs 0xffff
-    setreg IP $npc $osize
+    setreg CS $ncs 0xffff "vector.cs"
+    setreg IP $npc $osize "vector.pc"
+    fault=0
 }
 
 # Undefined opcode fault
 UD2() {
-    read16 ncs 0x0 0x1a
-    read16 npc 0x0 0x18
-
-    setflags
     printf "ud2 0x%x 0x%x 0x%x\n" $ncs $npc $spc
-    pushv $(getreg FLAGS 0xffff) 0xffff # flags
-    pushv $(getreg CS 0xffff) 0xffff # cs
-    pushv $spc 0xffff # ip
-
-    setreg CS $ncs 0xffff
-    setreg IP $npc $osize
+    vector 06
 }
 
 # Test JCC conditions
@@ -378,6 +399,12 @@ setop() {
     X86_ENC[$op]="$enc"
 }
 
+# special case for 3-op
+setop3() {
+    local op=$1 o3=$2
+    X86_OP3[$op]="$o3"
+}
+
 # special case GRP opargs (opcode << 8) + subop
 grpop() {
     local op=$1 sub=$2 o1=$3 o2=$4
@@ -401,8 +428,8 @@ for i in {0..7}; do
   base=$(( i << 3 ))
   op=${grp1[$i]}
 
-  setop $((base+0)) $op Eb Gb MRR
-  setop $((base+1)) $op Ev Gv MRR
+  setop $((base+0)) $op Eb Gb MRR LCK
+  setop $((base+1)) $op Ev Gv MRR LCK
   setop $((base+2)) $op Gb Eb MRR
   setop $((base+3)) $op Gv Ev MRR
   setop $((base+4)) $op rAL Ib
@@ -432,9 +459,9 @@ setop 0x17 POP rSS
 setop 0x1E PUSH rDS
 setop 0x1F POP rDS
 
-setop 0x26 SEG rES
+setop 0x26 SEG rES __ __ LCK
 setop 0x27 DAA
-setop 0x2e SEG rCS
+setop 0x2e SEG rCS __ __ LCK
 setop 0x2f DAS
 
 setop 0x36 SEG rSS
@@ -553,7 +580,7 @@ grpop 0xff 5 Mp __
 
 # 386-specific opcodes
 add386() {
-    addr_mask=0xfffffff
+    addr_mask=0xffffffff
     setop 0x60 PUSHA
     setop 0x61 POPA
     setop 0x62 BOUND Gv Mp MRR
@@ -578,12 +605,16 @@ add386() {
     setop 0xFA1 POP rFS
     setop 0xFA3 BT Ev Gv MRR
     setop 0xFA4 SHLD Ev Gv MRR # Ev Gv Ib
+    setop3 0xFA4 Ib
     setop 0xFA5 SHLD Ev Gv MRR # Ev Gv rCL
+    setop3 0xFA5 rCL
     setop 0xFA8 PUSH rGS
     setop 0xFA9 POP rGS
     setop 0xFAB BTS Ev Gv MRR
     setop 0xFAC SHRD Ev Gv MRR # Ev Gv Ib
+    setop3 0xFAC Ib
     setop 0xFAD SHRD Ev Gv MRR # Ev Gv rCL
+    setop3 0xFAD rCL
     setop 0xFAF IMUL Gv Ev MRR
     setop 0xFB2 LSS Gv Mp MRR
     setop 0xFB3 BTR Ev Gv MRR
@@ -626,7 +657,6 @@ getseg() {
     local vseg=$2
     local oseg=$3
     local lbl=$4
-    echo "@ getseg $vseg $oseg"
     if [ -n "$oseg" ] ; then
 	vseg=$oseg
     fi
@@ -708,18 +738,12 @@ mkea32() {
 	local bb=$((SIB & 7))
 	
 	rrr=$bb
-	bbn="${eregs[$rrr]}"
 	if (( $ii != 4 )) ; then
 	    sib=$(getreg $ii $osize)
+	    printf " iii: ${eregs[$ii]} 0x%.8x x $ss\n" $sib
 	    sib=$((sib * ss))
-	    iin="+${eregs[$ii]}x$ss"
-	else
-	    iin=""
 	fi
-	printf "SIB: %x bb:$bbn ii:$iin $easeg\n" $SIB
 	# new base register
-    else
-	echo "MRR: ${eregs[$rrr]}"
     fi
 
     # Now get base address
@@ -729,40 +753,56 @@ mkea32() {
 	fetch16 SI1
 	off=$(((SI1 << 16) + SI0))
 	easeg="seg 3"
+	printf " bbb: [d16] 0x%.8x\n" $off 
     else
 	off=$(getreg $rrr $osize)
 	# SS follows EBP
 	if (( rrr == 5 )) ; then
 	    easeg="seg 2"
 	fi
+	printf " bbb: ${eregs[$rrr]} 0x%.8x\n" $off 
     fi
-
-    printf "base offset: [$easeg] sib:%x off:%x\n" $sib $off
 
     # Get displacement
     SI0=0
     if (( mm == 1 )) ; then
 	fetch8 SI0
-	printf "fetch8: %x\n" $SI0
 	signex SI0 $SI0 0xff 0x80
     elif (( mm == 2 )) ; then
 	fetch16 SI0
 	fetch16 SI1
 	SI0=$((SI0 + (SI1 << 16)))
     fi
+#    printf " base offset: sib:%.8x off:%.8x disp:%.8x [$easeg] [$seg]\n" $sib $off $SI0
 
     # Segment override
     off=$(((sib + off + SI0) & addr_mask))
-    printf "SI0: %x\n" $off
-    if (( off > 0xffff )) ; then
-	printf "fault2\n"
-	if [[ $seg == "seg 2" || $easeg == "seg 2" ]] ; then
-	    fault=0xc
-	else
-	    fault=0xd
-	fi
-    fi
     getseg val "$easeg" "$seg" "ea"
+    printf "ea32: [$val] %.8x\n" $off
+
+    sv=($val)
+    case $mask in
+	0xff)
+	    if (( $((off)) > 0xffff && $cpu_type == 80386 )) ; then
+		echo "prefault"
+		fault=${sv[0]}
+	    fi
+	    ;;
+	0xffff)
+	    if (( $((off+1)) > 0xffff && $cpu_type == 80386 )) ; then
+		echo "prefault"
+		fault=${sv[0]}
+	    fi
+	    ;;
+	0xffffffff)
+	    if (( $((off+3)) > 0xffff && $cpu_type == 80386 )) ; then
+		echo "prefault"
+		fault=${sv[0]}
+	    fi
+	    ;;
+    esac
+
+    printf "tsv: 0x%x 0x%x\n" $tsv_seg $tsv_off
     printf -v "$out" "mem $val 0x%x 0x%x $mm $rrr" $off $mask
 }    
 
@@ -813,6 +853,22 @@ mkea() {
     
     # Segment override
     getseg val "$easeg" "$seg" "ea"
+    case $mask in
+	0xffff)
+	    if (( $((off+1)) > 0xffff && $cpu_type == 80386 )) ; then
+		echo "prefault"
+#		fault=0xd
+	    fi
+	    ;;
+	0xffffffff)
+	    if (( $((off+3)) > 0xffff && $cpu_type == 80386 )) ; then
+		echo "prefault"
+#		fault=0xd
+	    fi
+	    ;;
+    esac
+
+    printf "tsv: 0x%x 0x%x\n" $tsv_seg $tsv_off
     printf -v "$out" "mem $val 0x%x 0x%x $mm $rrr" $off $mask
 }
 
@@ -837,9 +893,10 @@ strop() {
     
     # Check DF flag
     [ $DF != 0 ] && delta=$((-delta))
+    printf "strop vo is $vo $voff $delta %x\n"  $((voff + delta))
 
     # inc/dec index
-    setreg $vo $((voff + delta)) $opsize
+    setreg "$vo" "$((voff + delta))" $osize "strop"
 
     # Memory address
     getseg val "$vs" "" "strop"
@@ -868,7 +925,14 @@ decarg() {
 	Yb | Yv) strop $out "seg 0" 7 $mask ;; # ES:DI
 	Gb | Gv) mkreg $out ${ggg} $mask ;;
 	gb | gv) mkreg $out $opg $mask ;;
-	Eb | Ew | Ev | Mp)  mkea $out $opmrr $mask ;;
+	Eb | Ew | Ev) mkea $out $opmrr $mask ;;
+	Mp)
+	    if (( $(((opmrr >> 6) & 3)) == 3 )) ; then
+		echo "REG for Mp!"
+		fault=0x6
+		return
+	    fi
+	    mkea $out $opmrr $mask ;;
 	Ob | Ov) mkea $out 0x6 $mask ;;
 	Jb)
 	    fetch8 IR
@@ -981,7 +1045,7 @@ execset() {
     local oparg=($1)
     local val=$2
 
-    printf "set:[${oparg[*]}] $val\n"
+#    printf "set:[${oparg[*]}] $val\n"
     case ${oparg[0]} in
 	reg)
 	    setreg ${oparg[1]} $val ${oparg[2]}
@@ -1009,11 +1073,11 @@ execset() {
 	    case $cpu_type in
 		80386)
 		    local n=$((oparg[1] + 16))
-		    setreg $n $val 0xffff
+		    setreg $n $val 0xffff "seg"
 		    ;;
 		*)
 		    local n=$(((oparg[1] & 3) + 16))
-		    setreg $n $val 0xffff
+		    setreg $n $val 0xffff "seg"
 		    ;;
 	    esac
 	    ;;
@@ -1042,8 +1106,6 @@ shiftop() {
     local dest=$s1
 
     if [[ $fault -ne 0 ]] ; then
-	echo "hazfault : $faultstr"
-	fault=0
 	return
     fi
     local cmask=0xfffffffff
@@ -1123,8 +1185,6 @@ aluop() {
     local dest=$s1
 
     if [[ $fault -ne 0 ]] ; then
-	echo "hazfault : $faultstr"
-	fault=0
 	return
     fi
     local ncf=0
@@ -1194,7 +1254,7 @@ signex() {
 
 # Execute an opcode
 execop() {
-    local opmrr=$1 opfn=$2 s1="$3" eval s2="$4"
+    local opmrr=$1 opfn=$2 s1="$3" s2="$4" s3="$5"
     flags=""
     
     if [[ $opfn == JCC ]] ; then
@@ -1207,18 +1267,19 @@ execop() {
     # Check LOCK
     if [[ -n "$lock" ]] ; then
 	case $opfn in
-	    SEG)
+	    SEG | ASZ | OSZ)
 		;;
 	    BT | BTS | BTR | BTC | ADD | OR | ADC | SBB | AND | SUB | XOR | NOT | NEG | INC | DEC)
 		if [[ $s1 == "mem "* ]]; then
 		    echo "IS MEM"
 		else
 		    echo "NOT MEM"
-		    UD2
+		    fault=0x6
+		    return
 		fi
 		;;
 	    *)
-		UD2
+		fault=0x6
 		return
 		;;
 	esac
@@ -1234,10 +1295,10 @@ execop() {
 		local pc=$(getreg IP $osize)
 		if [[ $cx -ne 0 ]]; then
 		    cx=$(((cx - 1) & $osize))
-		    setreg CX $cx $osize
+		    setreg CX $cx $osize "movs.cx"
 		    if [[ $cx -ne 0 ]] ; then
 		    	# decrease CX,PC and set prefix
-			setreg IP $((pc - 1)) $osize
+			setreg IP $((pc - 1)) $osize "movs.pc"
 			pfx=1
 		    fi
 		fi
@@ -1252,7 +1313,7 @@ execop() {
 		echo "inrep $rep"
 		if [[ $cx -ne 0 ]]; then
 		    cx=$(((cx - 1) & $osize))
-		    setreg CX $cx $osize
+		    setreg CX $cx $osize "cmps.cx"
 
 		    # default to loop then turn off
 		    pfx=1
@@ -1261,7 +1322,7 @@ execop() {
 		    [[ "$rep" == "repnz" && $ZF == 1 ]] && pfx=0
 		    if [[ $pfx -ne 0 ]] ; then
 			# if pfx set then decrease PC
-			setreg IP $((pc - 1)) $osize
+			setreg IP $((pc - 1)) $osize "cmps.pc"
 		    fi
 		fi
 	    fi
@@ -1269,7 +1330,7 @@ execop() {
 	MOV | MOVZX)
 	    # easy. A=B
 	    execval v1 "$s2"
-	    if (( $fault != 0 )) ; then
+	    if (( "$fault" != 0 )) ; then
 		vector $fault $spc
 		fault=0
 		return
@@ -1294,31 +1355,6 @@ execop() {
 	    ;;
 	ROL|ROR|RCL|RCR|SHL|SHR|SAL|SAR)
 	    shiftop $opfn "$s1" "$s2"
-	    ;;
-	SHLD | SHRD)
-	    opgrp=$((opmrr & 0xFFFF00))
-	    execval v1 "$s1"
-	    execval v2 "$s2"
-	    if [[ $opgrp -eq 0x0FA400 || $opgrp -eq 0x0FAC00 ]] ; then
-		fetch8 v3
-	    fi
-	    if [[ $opgrp -eq 0x0FA500 || $opgrp -eq 0x0FAD00 ]] ; then
-		v3=$(getreg 1 0xff)
-	    fi
-	    v3=$((v3 & 0x1F))
-	    if [[ "$opfn" == "SHLD" ]]; then
-		res=$((v1 << v3))
-		printf "res %x\n" $res
-		res=$((res + ((v2 >> (16-v3)))))
-		printf "res %x\n" $res
-		ssgn=0x8000
-		smsk=0xffff
-		ZF=$(((res & smask) == 0))
-		SF=$(((res & ssgn) != 0))
-		PF=$(parity $res)
-	    fi
-	    printf "$opfn %.8x %.8x %.8x %.2x -> %.8x\n" $opgrp $v1 $v2 $v3 $res
-	    execset "$s1" $res
 	    ;;
 	MUL | IMUL)
 	    opgrp=$((opmrr & 0xFFFF00))
@@ -1412,7 +1448,7 @@ execop() {
 	CMC) CF=$((1-CF)) ;;
 	RET)
 	    popv v1
-	    setreg IP $v1 $osize
+	    setreg IP $v1 $osize "ret.pc"
 	    # ret Iw
 	    execval v1 "$s1"
 	    if [[ $v1 -ne 0 ]]; then
@@ -1423,8 +1459,8 @@ execop() {
 	RETF)
 	    popv co
 	    popv cs
-	    setreg IP co $osize
-	    setreg CS cs 0xffff
+	    setreg IP co $osize "retf.pc"
+	    setreg CS cs 0xffff "retf.cs"
 	    # retf Iw
 	    execval v1 "$s1"
 	    if [[ $v1 -ne 0 ]]; then
@@ -1435,7 +1471,7 @@ execop() {
 	CALL)
 	    execval arg "$s1"
 	    pushv $(getreg IP $osize) $osize
-	    setreg IP $arg $osize
+	    setreg IP $arg $osize "call.pc"
 	    ;;
 	CALLF)
 	    execval arg "$s1"
@@ -1446,12 +1482,12 @@ execop() {
 	    fi
 	    pushv $(getreg CS 0xffff) 0xffff # push cs
 	    pushv $(getreg IP 0xffff) 0xffff # push ip
-	    setreg CS $cseg 0xffff
-	    setreg IP $coff $osize
+	    setreg CS $cseg 0xffff "callf.cs"
+	    setreg IP $coff $osize "callf.pc"
 	    ;;
 	JMP)
 	    execval arg "$s1"
-	    setreg IP $arg 0xffff
+	    setreg IP $arg 0xffff "jmp.pc"
 	    ;;
 	JMPF)
 	    execval arg "$s1"
@@ -1460,14 +1496,19 @@ execop() {
 	    if [[ "$s1" == "mem "* ]] ; then
 		loadptr cseg coff "$s1"
 	    fi
-	    setreg CS $cseg 0xffff
-	    setreg IP $coff $osize
+	    if [[ $fault != 0 ]]; then
+		vector $fault
+		fault=0
+		return
+	    fi
+	    setreg CS $cseg 0xffff "jmpf.cs"
+	    setreg IP $coff $osize "jmpf.pc"
 	    ;;
 	JCC)
 	    testcond $((opmrr >> 8))
 	    if [ $? = 0 ]; then
 		execval arg "$s1"
-		setreg IP $arg $osize
+		setreg IP $arg $osize "jcc.pc"
 	    fi
 	    ;;
 	SETCC)
@@ -1507,10 +1548,10 @@ execop() {
 	    ;;
 	LOOP | LOOPZ | LOOPNZ)
 	    execval lz "$s1"
-	    local cx=$(getreg CX $osize)
+	    local cx=$(getreg CX $asize)
 	    local pc=$(getreg IP $osize)
-	    cx=$(((cx - 1) & $osize))
-	    setreg CX $cx $osize
+	    cx=$(((cx - 1) & $asize))
+	    setreg CX $cx $asize
 	    if (( $cx != 0 )) ; then
 		case $opfn in
 		    LOOP)
@@ -1527,7 +1568,7 @@ execop() {
 	    ;;
 	JCXZ)
 	    execval lz "$s1"
-	    local cx=$(getreg CX $osize)
+	    local cx=$(getreg CX $asize)
 	    local pc=$(getreg IP $osize)
 	    if (( $cx == 0 )); then
 		setreg IP $lz $osize
@@ -1543,24 +1584,20 @@ execop() {
 	    # operand size prefix
 	    pfx=1
 	    osize=0xffffffff
-	    echo "osize $osize"
 	    ;;
 	ASZ)
 	    # address size prefix
 	    pfx=1
 	    asize=0xffffffff
-	    echo "asize $asize"
 	    ;;
 	SEG)
 	    # segment override prefix
 	    pfx=1
 	    seg="$s1"
-	    echo "seg pfx $seg"
 	    ;;
 	REP)
 	    pfx=1
 	    rep="$s1"
-	    echo "rep pfx $rep"
 	    ;;
 	LOCK)
 	    printf "lock pc: %x\n" $(getreg IP 0xffff)
@@ -1600,12 +1637,11 @@ execop() {
 	    ;;
 	PUSH)
 	    execval v1 "$s1"
-	    if [[ $s1 == "reg 4 "* ]];then
-		# push SP special case
-		pushv $v1 $osize "1"
-	    else
-		pushv $v1 $osize
+	    if [[ "$s1" == "reg 4 "* && $cpu_type == 8088 ]] ; then
+		printf "special sp\n"
+		v1=$((v1 - 2))
 	    fi
+	    pushv $v1 $osize
 	    ;;
 	POP)
 	    popv v1 
@@ -1740,8 +1776,9 @@ decode() {
     local opmrr=$((opcode * 256))
     local op1="${X86_OP1[$opcode]}"
     local op2="${X86_OP2[$opcode]}"
-
-    printf "==== %.2x $opfn $op1 $op2 %x\n" $opcode $opmrr
+    local op3="${X86_OP3[$opcode]}"
+    
+    printf "==== %.2x $opfn $op1 $op2 %x asz:$asize osz:$osize seg:$seg\n" $opcode $opmrr
     # create opcode << 8 + mrr byte
     if [[ ${X86_ENC[$opcode]} == MRR ]] ; then
 	fetch8 IR
@@ -1762,17 +1799,30 @@ decode() {
 	printf "new sub: <${X86_OP1[$submrr]}> <${X86_OP2[$submrr]}> %x\n" $submrr
 	if [ -n "${X86_OP1[$submrr]}" ] ; then
 	    op1="${X86_OP1[$submrr]}"
-	    echo "new op1" $op1
 	fi
 	if [ -n "${X86_OP2[$submrr]}" ] ; then
 	    op2="${X86_OP2[$submrr]}"
-	    echo "new op1" $op2
 	fi
     fi
+    m3=""
     decarg m1 $opmrr $op1 $osize
     decarg m2 $opmrr $op2 $osize
-    printf "[$m1] [$m2]\n"
-    execop $opmrr $opfn "$m1" "$m2"
+    decarg m3 $opmrr $op3 $osize
+    printf "[$m1] [$m2] [$m3]\n"
+    if (( $fault != 0 )) ; then
+	printf "fault in args: $fault\n"
+	vector $fault
+	fault=0
+	return
+    fi
+    execop $opmrr $opfn "$m1" "$m2" "$m3"
+    if (( $fault != 0 )) ; then
+	printf "fault in exec: $fault\n"
+	vector $fault
+	fault=0
+    fi
+    pc=$(getreg 15 0xffff)
+    setreg IP $pc 0xffff "post-exec"
     if [ -z $opfn ]; then
 	echo "--- missing"
     fi

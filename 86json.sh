@@ -5,6 +5,8 @@
 # Load x86 core
 . x86.sh load
 
+error=0
+
 # return register index
 regindex() {
     case $1 in
@@ -74,6 +76,7 @@ check() {
 		;;
 	    *)
 		printf "mismatch: $key $index %x [got: $rv %x]\n" $value $rv
+		error=1
 		;;
 	esac
     fi
@@ -106,12 +109,13 @@ parsemem() {
 	    mv=0
 	fi
 	if [ $verbose != 0 ] ; then
-	    printf "$addr <- %x [${X86_MEM[$addr]}]\n" $val
+	    printf "$addr[%x] <- %x [${X86_MEM[$addr]}]\n" $addr $val
 	fi
 	if [ $ini -eq 1 ]; then
 	    X86_MEM[$addr]=$val
 	elif [ "$mv" -ne "$val" ]; then
 	    printf "mismatch: mem $addr %x [got: %x]\n" $val $mv
+	    error=1
 	fi
     done < .input.$$
 }
@@ -157,8 +161,23 @@ loadtsv() {
     while IFS=$'\t' read -r tag key val ; do
 	case $tag in
 	    ROW)
-	    # start over
-		printf "====== row [$key]\n"
+		# start over
+		if (( $error != 0 )) ; then
+		    exit 1
+		fi
+		X86_MEM=()
+		printf "\n====== row [$key]\n"
+		;;
+	    EA)		
+		printf "EA $key $val [0x%x]\n" $val
+		case $key in
+		    "sel")
+			tsv_seg=$val
+			;;
+		    "offset")
+			tsv_off=$val
+			;;
+		esac
 		;;
 	    IR)
 		# initial.regs
@@ -187,6 +206,7 @@ loadtsv() {
 		fi
 		if [ "$mv" -ne "$val" ]; then
 		    printf "mismatch: mem $key %x [got: %x]\n" $val $mv
+		    error=1
 		fi
 		;;
 	esac
