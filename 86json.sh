@@ -163,19 +163,22 @@ loadtsv() {
 	    ROW)
 		# start over
 		if (( $error != 0 )) ; then
+		    echo "error"
 		    exit 1
 		fi
 		X86_MEM=()
 		printf "\n====== row [$key]\n"
 		;;
 	    EA)		
-		printf "EA $key $val [0x%x]\n" $val
 		case $key in
 		    "sel")
 			tsv_seg=$val
 			;;
 		    "offset")
 			tsv_off=$val
+			;;
+		    "l_addr")
+			tsv_lin=$val
 			;;
 		esac
 		;;

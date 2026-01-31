@@ -22,6 +22,7 @@ declare -a X86_MEM
 
 tsv_seg=0
 tsv_off=0
+tsv_lin=0
 
 fault=0
 lock=0
@@ -181,6 +182,11 @@ fetch8() {
     local addr=$(((cs * 16 + pc) & $addr_mask))
     local v=${X86_MEM[$addr]}
     printf "fetch  %d %.8x off=%.8x [%.2x]\n" $addr $addr $off $v
+    if (( $pc > 0xffff )) ; then
+	echo  "FETCH8 FAULT"
+#	fault=0xd
+	vector 0xd $spc
+    fi
     setreg IP $((pc+1)) 0xffffffff "fetch8"
     printf -v "$out" "0x%.2x" $v
 }
@@ -222,7 +228,7 @@ read8() {
     local base=$(($2 * 16))
     local addr=$(((base + (off + 0)) & $addr_mask))
     local v=${X86_MEM[$addr]}
-    printf "read %d %.8x off=%.8x [%.2x]\n" $addr $addr $off $v
+    printf "read8 %d %.8x off=%.8x [%.2x]\n" $addr $addr $off $v
     printf -v "$out" "0x%x" $v
 }
 
@@ -245,6 +251,7 @@ read16() {
     local base=$(($2 * 16))
     local a0=$(((base + (off + 0 & 0xFFFF)) & $addr_mask))
     local a1=$(((base + (off + 1 & 0xFFFF)) & $addr_mask))
+    printf "read16 %x %x %d %x\n" $base $off $a0 $a0
     local v1=${X86_MEM[$a0]}
     local v2=${X86_MEM[$a1]}
     printf -v "$out" "0x%.2x%.2x" $v2 $v1
@@ -264,12 +271,21 @@ write16() {
 loadptr() {
     local cs=$1
     local co=$2
+
     #mem0 vect1 seg2 base3 mask4
     local oparg=($3)
-    local pseg=${oparg[2]}
-    local pofs=${oparg[3]}
-    read16 coff $pseg $pofs
-    read16 cseg $pseg $((pofs + 2))
+    case ${oparg[0]} in
+	"mem")
+	    local pseg=${oparg[2]}
+	    local pofs=${oparg[3]}
+	    read16 coff $pseg $pofs
+	    read16 cseg $pseg $((pofs + 2))
+	    ;;
+	"ptr")
+	    printf -v cseg "0x%x" ${oparg[2]}
+	    printf -v coff "0x%x" ${oparg[3]}
+	    ;;
+    esac
 }
 
 # push value to stack (dec->write)
@@ -283,9 +299,9 @@ pushv() {
     printf "pushv 0x%x 0x%x %x [%s]\n" $sp $val $mask $lbl
     case $mask in
 	0xffff)
+	    # decrement then write
 	    sp=$(((sp - 2) & 0xffff))
 	    setreg SP $sp 0xffff "pushw.sp"
-	    # 8088 push sp saves new value
 	    write16 $ss $sp $val
 	    ;;
 	0xffffffff)
@@ -580,7 +596,7 @@ grpop 0xff 5 Mp __
 
 # 386-specific opcodes
 add386() {
-    addr_mask=0xffffffff
+    addr_mask=0xffffff
     setop 0x60 PUSHA
     setop 0x61 POPA
     setop 0x62 BOUND Gv Mp MRR
@@ -729,6 +745,7 @@ mkea32() {
     
     # default to DS
     easeg="seg 3"
+    rrscale=1
     if (( $rrr == 4 )) ; then
 	# SIB byte
 	fetch8 SIB
@@ -742,6 +759,8 @@ mkea32() {
 	    sib=$(getreg $ii $osize)
 	    printf " iii: ${eregs[$ii]} 0x%.8x x $ss\n" $sib
 	    sib=$((sib * ss))
+	else
+	    rrscale=$ss
 	fi
 	# new base register
     fi
@@ -756,6 +775,7 @@ mkea32() {
 	printf " bbb: [d16] 0x%.8x\n" $off 
     else
 	off=$(getreg $rrr $osize)
+	off=$((off * rrscale))
 	# SS follows EBP
 	if (( rrr == 5 )) ; then
 	    easeg="seg 2"
@@ -772,8 +792,9 @@ mkea32() {
 	fetch16 SI0
 	fetch16 SI1
 	SI0=$((SI0 + (SI1 << 16)))
+	signex SI0 $SI0 0xffffffff 0x80000000
     fi
-#    printf " base offset: sib:%.8x off:%.8x disp:%.8x [$easeg] [$seg]\n" $sib $off $SI0
+    printf " base offset: sib:%.8x off:%.8x disp:%.8x [$easeg] [$seg]\n" $sib $off $SI0
 
     # Segment override
     off=$(((sib + off + SI0) & addr_mask))
@@ -802,7 +823,7 @@ mkea32() {
 	    ;;
     esac
 
-    printf "tsv: 0x%x 0x%x\n" $tsv_seg $tsv_off
+    printf "tsv: 0x%x 0x%x 0x%x\n" $tsv_seg $tsv_off $tsv_lin
     printf -v "$out" "mem $val 0x%x 0x%x $mm $rrr" $off $mask
 }    
 
@@ -854,6 +875,12 @@ mkea() {
     # Segment override
     getseg val "$easeg" "$seg" "ea"
     case $mask in
+	0xff)
+	    if (( $off > 0xffff && $cpu_type == 80386 )) ; then
+		echo "prefault"
+#		fault=0xd
+	    fi
+	    ;;
 	0xffff)
 	    if (( $((off+1)) > 0xffff && $cpu_type == 80386 )) ; then
 		echo "prefault"
@@ -868,7 +895,7 @@ mkea() {
 	    ;;
     esac
 
-    printf "tsv: 0x%x 0x%x\n" $tsv_seg $tsv_off
+    printf "2tsv: 0x%x 0x%x\n" $tsv_seg $tsv_off
     printf -v "$out" "mem $val 0x%x 0x%x $mm $rrr" $off $mask
 }
 
@@ -913,6 +940,7 @@ decarg() {
 
     # set mask on Gb/Eb etc to 0xff
     [[ $oparg == ?b* ]] && mask=0xff
+    [[ $oparg == ?w* ]] && mask=0xffff
     case $oparg in
 	rES) printf -v "$out" "seg 0" ;;
 	rCS) printf -v "$out" "seg 1" ;;
@@ -925,7 +953,7 @@ decarg() {
 	Yb | Yv) strop $out "seg 0" 7 $mask ;; # ES:DI
 	Gb | Gv) mkreg $out ${ggg} $mask ;;
 	gb | gv) mkreg $out $opg $mask ;;
-	Eb | Ew | Ev) mkea $out $opmrr $mask ;;
+	Eb | Ev | Ew) mkea $out $opmrr $mask ;;
 	Mp)
 	    if (( $(((opmrr >> 6) & 3)) == 3 )) ; then
 		echo "REG for Mp!"
@@ -962,8 +990,8 @@ decarg() {
 	    ;;
 	Ap)
 	    fetch16 IS
-	    fetch16 IR
-	    printf -v "$out" "imm 0x%.4x%.4x 0xffff" $IR $IS
+	    fetchv IR
+	    printf -v "$out" "ptr 0x%x 0x%4x" $IS $IR
 	    ;;
 	*) printf -v "$out" "$oparg" ;;
     esac
@@ -1246,6 +1274,7 @@ aluop() {
 
 signex() {
     local out=$1 v=$2 mask=$3 sgn=$4
+    v=$((v & mask))
     if [[ $(((v & sgn))) != 0 ]]; then
 	v=$((v | ~mask))
     fi
@@ -1474,12 +1503,7 @@ execop() {
 	    setreg IP $arg $osize "call.pc"
 	    ;;
 	CALLF)
-	    execval arg "$s1"
-	    local cseg=$((arg >> 16))
-	    local coff=$((arg & 0xFFFF))
-	    if [[ "$s1" == "mem "* ]] ; then
-		loadptr cseg coff "$s1"
-	    fi
+	    loadptr cseg coff "$s1"
 	    pushv $(getreg CS 0xffff) 0xffff # push cs
 	    pushv $(getreg IP 0xffff) 0xffff # push ip
 	    setreg CS $cseg 0xffff "callf.cs"
@@ -1490,14 +1514,9 @@ execop() {
 	    setreg IP $arg 0xffff "jmp.pc"
 	    ;;
 	JMPF)
-	    execval arg "$s1"
-	    local cseg=$((arg >> 16))
-	    local coff=$((arg & 0xFFFF))
-	    if [[ "$s1" == "mem "* ]] ; then
-		loadptr cseg coff "$s1"
-	    fi
+	    loadptr cseg coff "$s1"
 	    if [[ $fault != 0 ]]; then
-		vector $fault
+		vector $fault $spc
 		fault=0
 		return
 	    fi
@@ -1534,7 +1553,7 @@ execop() {
 	    echo "read pointer $pseg $pofs $cseg $coff $fault"
 	    if [[ $fault != 0 ]]; then
 		echo "GPF"
-		vector 0x0d
+		vector 0x0d $spc
 		fault=0
 	    else
 		case $opfn in
@@ -1638,6 +1657,7 @@ execop() {
 	PUSH)
 	    execval v1 "$s1"
 	    if [[ "$s1" == "reg 4 "* && $cpu_type == 8088 ]] ; then
+		# SP decrements then pushes itself
 		printf "special sp\n"
 		v1=$((v1 - 2))
 	    fi
@@ -1692,6 +1712,7 @@ execop() {
 	    local v2=$(getreg 0 0xff)
 	    local xoff=$(((v1 + v2) & 0xffff))
 	    getseg xseg "seg 3" "$seg" "xlat"
+	    printf "xlat: %x %x |%x |$xseg\n" $v1 $v2 $xoff
 	    read8 XL $xseg $xoff
 	    setreg 0 $XL 0xff
 	    ;;
@@ -1778,7 +1799,7 @@ decode() {
     local op2="${X86_OP2[$opcode]}"
     local op3="${X86_OP3[$opcode]}"
     
-    printf "==== %.2x $opfn $op1 $op2 %x asz:$asize osz:$osize seg:$seg\n" $opcode $opmrr
+    printf "==== %.2x $opfn $op1 $op2 %x asz:$asize osz:$osize seg:$seg lock:$lock\n" $opcode $opmrr
     # create opcode << 8 + mrr byte
     if [[ ${X86_ENC[$opcode]} == MRR ]] ; then
 	fetch8 IR
@@ -1793,6 +1814,8 @@ decode() {
 	    GRP3) opfn=${grp3[$subop]} ;;
 	    GRP4) opfn=${grp4[$subop]} ;;
 	    GRP5) opfn=${grp5[$subop]} ;;
+	    GRP7) opfn=${grp7[$subop]} ;;
+	    GRP8) opfn=${grp8[$subop]} ;;
 	esac
 	# Handle group difference oparg
 	local submrr=$((opmrr & 0xFF38))
@@ -1805,21 +1828,26 @@ decode() {
 	fi
     fi
     m3=""
+    if [[ $lock -ne 0 && $op1 == G* ]] ; then
+	printf "fault reg lock"
+	vector 0x6
+	fault=0
+	return
+    fi
     decarg m1 $opmrr $op1 $osize
     decarg m2 $opmrr $op2 $osize
     decarg m3 $opmrr $op3 $osize
     printf "[$m1] [$m2] [$m3]\n"
     if (( $fault != 0 )) ; then
 	printf "fault in args: $fault\n"
-	vector $fault
-	fault=0
+	vector $fault $spc
 	return
     fi
     execop $opmrr $opfn "$m1" "$m2" "$m3"
     if (( $fault != 0 )) ; then
 	printf "fault in exec: $fault\n"
 	vector $fault
-	fault=0
+	return
     fi
     pc=$(getreg 15 0xffff)
     setreg IP $pc 0xffff "post-exec"
