@@ -124,7 +124,7 @@ setreg() {
 	val=$((val << 8))
 	num=$((num - 4))
     fi
-#    printf "setreg $num %.4x $mask [$lbl]\n" $val
+    printf "setreg $num %.4x $mask [$lbl]\n" $val
     X86_REGS[$num]=$(((X86_REGS[num] & ~mask) | val))
 }
 
@@ -174,6 +174,25 @@ checkmem() {
     fi
 }
 
+checkpg() {
+    local tt=$1
+
+    if (( "$tt"!="mem" )); then
+	return
+    fi
+    local f=$2 seg=$3 off=$4 mask=$5
+    echo "checkpg [$f] [$seg] [$off] [$mask]"
+    case $mask in
+	0xff) size=1 ;;
+	0xffff) size=2 ;;
+	0xffffffff) size=4 ;;
+	*) size=8;;
+    esac
+    if (( $off+$size > 0x10000 )) ; then
+	fault=$f
+    fi
+}
+
 # fetch byte from PC
 fetch8() {
     local out=$1
@@ -181,13 +200,12 @@ fetch8() {
     local cs=${X86_REGS[17]}
     local addr=$(((cs * 16 + pc) & $addr_mask))
     local v=${X86_MEM[$addr]}
-    printf "fetch  %d %.8x off=%.8x [%.2x]\n" $addr $addr $off $v
-    if (( $pc > 0xffff )) ; then
+    printf "@fetch  %d %.8x off=%.8x [%.2x]\n" $addr $addr $off $v
+    if (( $((pc+1)) > 0xffff )) ; then
 	echo  "FETCH8 FAULT"
-#	fault=0xd
-	vector 0xd $spc
+	fault=0xd
     fi
-    setreg IP $((pc+1)) 0xffffffff "fetch8"
+    setreg IP $((pc+1)) 0xffff "fetch8"
     printf -v "$out" "0x%.2x" $v
 }
 
@@ -201,21 +219,22 @@ fetch16() {
 
 # fetch 16/32/64
 fetchv() {
+    local out=$1
     case $osize in
 	0xffff)
-	    fetch16 IR
+	    fetch16 $out
 	    ;;
 	0xffffffff)
 	    fetch16 D0
 	    fetch16 D1
-	    printf -v IR "0x%.4x%.4x" $D1 $D0
+	    printf -v $out "0x%.4x%.4x" $D1 $D0
 	    ;;
 	0xffffffffffffffff)
 	    fetch16 D0
 	    fetch16 D1
 	    fetch16 D2
 	    fetch16 D3
-	    printf -v IR "0x%.4x%.4x%.4x%.4x" $D3 $D2 $D1 $D0
+	    printf -v $out "0x%.4x%.4x%.4x%.4x" $D3 $D2 $D1 $D0
 	    ;;
 	esac
 }
@@ -228,7 +247,7 @@ read8() {
     local base=$(($2 * 16))
     local addr=$(((base + (off + 0)) & $addr_mask))
     local v=${X86_MEM[$addr]}
-    printf "read8 %d %.8x off=%.8x [%.2x]\n" $addr $addr $off $v
+    printf "read8 [%x] %d %.8x off=%.8x [%.2x]\n" $base $addr $addr $off $v
     printf -v "$out" "0x%x" $v
 }
 
@@ -282,8 +301,8 @@ loadptr() {
 	    read16 cseg $pseg $((pofs + 2))
 	    ;;
 	"ptr")
-	    printf -v cseg "0x%x" ${oparg[2]}
-	    printf -v coff "0x%x" ${oparg[3]}
+	    printf -v cseg "0x%x" ${oparg[1]}
+	    printf -v coff "0x%x" ${oparg[2]}
 	    ;;
     esac
 }
@@ -325,8 +344,7 @@ popv() {
 	    printf "pop16 $N $fault\n"
 	    printf -v "$out" "0x%x" $N
 	    if [[ $fault -ne 0 ]] ; then
-		vector 0xc $spc
-		fault=0
+		return
 	    else
 		setreg SP $((sp + 2)) 0xffff "popw.sp"
 	    fi
@@ -687,6 +705,7 @@ getseg() {
 	*) echo "no seg $vseg $lbl" ; exit 0 ;;
     esac
     printf -v "$out" "$svect 0x%x" $val
+    echo "getseg [$vseg] [$oseg] -> [$val]"
 }
 
 # Create register object with current value
@@ -771,14 +790,14 @@ mkea32() {
 	fetch16 SI0
 	fetch16 SI1
 	off=$(((SI1 << 16) + SI0))
-	easeg="seg 3"
+	easeg="seg 3" # DS
 	printf " bbb: [d16] 0x%.8x\n" $off 
     else
 	off=$(getreg $rrr $osize)
 	off=$((off * rrscale))
 	# SS follows EBP
-	if (( rrr == 5 )) ; then
-	    easeg="seg 2"
+	if (( rrr == 5 || rrr == 4 )) ; then
+	    easeg="seg 2" # SS
 	fi
 	printf " bbb: ${eregs[$rrr]} 0x%.8x\n" $off 
     fi
@@ -878,24 +897,25 @@ mkea() {
 	0xff)
 	    if (( $off > 0xffff && $cpu_type == 80386 )) ; then
 		echo "prefault"
-#		fault=0xd
+		fault=0xd
 	    fi
 	    ;;
 	0xffff)
 	    if (( $((off+1)) > 0xffff && $cpu_type == 80386 )) ; then
 		echo "prefault"
-#		fault=0xd
+		fault=0xd
 	    fi
 	    ;;
 	0xffffffff)
 	    if (( $((off+3)) > 0xffff && $cpu_type == 80386 )) ; then
 		echo "prefault"
-#		fault=0xd
+		fault=0xd
 	    fi
 	    ;;
     esac
 
     printf "2tsv: 0x%x 0x%x\n" $tsv_seg $tsv_off
+    printf "pc ${X86_REGS[15]}\n"
     printf -v "$out" "mem $val 0x%x 0x%x $mm $rrr" $off $mask
 }
 
@@ -923,7 +943,7 @@ strop() {
     printf "strop vo is $vo $voff $delta %x\n"  $((voff + delta))
 
     # inc/dec index
-    setreg "$vo" "$((voff + delta))" $osize "strop"
+    setreg "$vo" "$((voff + delta))" $asize "strop"
 
     # Memory address
     getseg val "$vs" "" "strop"
@@ -941,7 +961,7 @@ decarg() {
     # set mask on Gb/Eb etc to 0xff
     [[ $oparg == ?b* ]] && mask=0xff
     [[ $oparg == ?w* ]] && mask=0xffff
-    case $oparg in
+   case $oparg in
 	rES) printf -v "$out" "seg 0" ;;
 	rCS) printf -v "$out" "seg 1" ;;
 	rSS) printf -v "$out" "seg 2" ;;
@@ -961,14 +981,15 @@ decarg() {
 		return
 	    fi
 	    mkea $out $opmrr $mask ;;
-	Ob | Ov) mkea $out 0x6 $mask ;;
+	Ob) mkea $out 0x6 $mask ;;
+	Ov) mkea $out 0x6 $asize ;;
 	Jb)
 	    fetch8 IR
 	    local addr=$(add8 ${X86_REGS[15]} $IR)
 	    printf -v "$out" "imm $addr 0xff"
 	    ;;
 	Jv)
-	    fetchv
+	    fetchv IR
 	    printf -v "$out" "imm 0x%x 0xffff" $((X86_REGS[15] + $IR))
 	    ;;
 	rCL) mkreg $out 1 0xff ;;
@@ -979,7 +1000,7 @@ decarg() {
 	i3) mkimm $out 3 $mask ;;
 	Ib) fetch8 IR ; mkimm $out $IR $mask ;;
 	Iw) fetch16 IR; mkimm $out $IR $mask ;;
-	Iv) fetchv ; mkimm $out $IR $mask ;;
+	Iv) fetchv IR ; mkimm $out $IR $mask ;;
 	Sb)
 	    # signed byte
 	    fetch8 IR
@@ -989,9 +1010,9 @@ decarg() {
 	    mkimm $out $IR 0xffff
 	    ;;
 	Ap)
-	    fetch16 IS
-	    fetchv IR
-	    printf -v "$out" "ptr 0x%x 0x%4x" $IS $IR
+	    fetchv AR
+	    fetch16 IR
+	    printf -v "$out" "ptr 0x%x 0x%.4x" $IR $AR
 	    ;;
 	*) printf -v "$out" "$oparg" ;;
     esac
@@ -1316,6 +1337,8 @@ execop() {
     
     case $opfn in
 	MOVS | LODS | STOS)
+	    checkpg $s1
+	    checkpg $s2
 	    execval v1 "$s2"
 	    printf "osize=$osize $v1\n"
 	    execset "$s1" "$v1"
@@ -1712,8 +1735,9 @@ execop() {
 	    local v2=$(getreg 0 0xff)
 	    local xoff=$(((v1 + v2) & 0xffff))
 	    getseg xseg "seg 3" "$seg" "xlat"
-	    printf "xlat: %x %x |%x |$xseg\n" $v1 $v2 $xoff
-	    read8 XL $xseg $xoff
+	    xs=($xseg)
+	    printf "xlat: vbx:%x al:%x |bx+al%d |$xseg\n" $v1 $v2 $xoff
+	    read8 XL ${xs[1]} $xoff
 	    setreg 0 $XL 0xff
 	    ;;
 	SALC)
@@ -1828,9 +1852,11 @@ decode() {
 	fi
     fi
     m3=""
+
+    # Check fault reg lock
     if [[ $lock -ne 0 && $op1 == G* ]] ; then
 	printf "fault reg lock"
-	vector 0x6
+	vector 0x6 $spc
 	fault=0
 	return
     fi
