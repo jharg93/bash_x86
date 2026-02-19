@@ -142,6 +142,11 @@ addof() {
     OF=$((( (v1 ^ res) & (v2 ^ res) & mask) != 0 ))
     printf "addof: %.4x %.4x %.4x %.4x => $OF\n" $r $v1 $v2 $mask
 }
+subof() {
+    local r=$1 v1=$2 v2=$3 mask=$4
+    OF=$((( (v1 ^ v2) & (v1 ^ res) & mask) != 0 ))
+    printf "subof: %.4x %.4x %.4x %.4x => $OF\n" $r $v1 $v2 $mask
+}
 
 setcf() {
     local r=$1 v1=$2 v2=$3 mask=$4
@@ -508,10 +513,10 @@ grpop() {
 #  D6 = salc
 #  0F = pop cs
 #  6x = jcc
-#  C0 = ret
+#  C0 = ret Iw
 #  C1 = ret
-#  C8 = retf Ib
-#  C9 = ret
+#  C8 = retf Iw
+#  C9 = retf
 #  F1 = lock
 #  82.x = Ib
 #  83.x = Sb
@@ -628,6 +633,7 @@ setop 0xad LODS rvAX Xv
 setop 0xae SCAS rAL Yb
 setop 0xaf SCAS rvAX Yv
 
+setop 0xc0 RET Iw      # undocumented
 setop 0xc1 RET         # undocumented
 setop 0xc2 RET Iw
 setop 0xc3 RET
@@ -635,7 +641,7 @@ setop 0xc4 LES Gv Mp MRR
 setop 0xc5 LDS Gv Mp MRR
 setop 0xc6 MOV Eb Ib MRR
 setop 0xc7 MOV Ev Iv MRR
-setop 0xc8 RET          # undocumented
+setop 0xc8 RETF Iw      # undocumented
 setop 0xc9 RETF         # undocumented
 setop 0xca RETF Iw
 setop 0xcb RETF
@@ -1393,8 +1399,8 @@ aluop() {
 	    ;;
 	2)
 	    # sub/sbb/neg
+	    subof $res $v1 $v2 $sgn
 	    AF=$(((v1 & 0xF) < (v2 & 0xF)))
-	    OF=$((((v1 ^ v2) & (v1 ^ res) & sgn) != 0))
 	    CF=$(((((~v1 & v2) | ((~v1 | v2) & res)) & sgn) != 0))
 	    ;;
 	3)
@@ -1404,7 +1410,7 @@ aluop() {
 	    ;;
 	4)
 	    # dec only sets OF
-	    OF=$((((v1 ^ v2) & (v1 ^ res) & sgn) != 0))
+	    subof $res $v1 0x1 $sgn
 	    AF=$(((v1 & 0xF) == 0x0))
 	    ;;
 	6)
@@ -1957,8 +1963,8 @@ execop() {
 	    printf "aas: %.2x %.2x\n" $ah $al
 	    if (( ((al & 0xF) > 9 || AF == 1 ) )) ; then
 		setreg 4 $((ah - 1)) 0xff
-		res=$(((al - 6) & 0xff))
-		OF=$(( ((al ^ 6) & (al ^ res) & 0x80) != 0 ))
+		res=$((al - 6))
+		subof $res $al 0x6 0x80
 		AF=1
 		CF=1
 	    else
@@ -2007,12 +2013,9 @@ execop() {
 	    al=$(getreg 0 0xff)
 	    al_check=0x99
 	    (( AF==1 )) && al_check=0x9F
-
-	    # ugly...
-	    (( CF==0 && al >= 0x7A && al <= 0x7F )) && OF=1
-	    (( CF==1 && al >= 0x1A && al <= 0x7F )) && OF=1
 	    if (( (al & 0xF) > 9 || AF == 1 )) ; then
 		res=$((al + 0x6))
+		addof $res $al 0x06 0x80
 		AF=1
 	    else
 		res=$al
@@ -2020,6 +2023,7 @@ execop() {
 	    fi
 	    if (( al > al_check || CF == 1 )) ; then
 		res=$((res + 0x60))
+		addof $res $al 0x60 0x80
 		CF=1
 	    else
 		CF=0
