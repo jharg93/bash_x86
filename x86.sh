@@ -997,9 +997,6 @@ mkea() {
 	    fi
 	    ;;
     esac
-
-    printf "2tsv: 0x%x 0x%x\n" $tsv_seg $tsv_off
-    printf "pc ${X86_REGS[15]}\n"
     printf -v "$out" "mem $val 0x%x 0x%x $mm $rrr" $off $mask
 }
 
@@ -2007,17 +2004,13 @@ execop() {
 	    ;;
 	DAA) # 27
 	    OF=0
-	    oldcf=$CF
-	    oldaf=$AF
 	    al=$(getreg 0 0xff)
-	    CF=0
-	    if (( oldcf != 0 )) ; then
-		((al >= 0x1a && al <= 0x7F)) && OF=1
-	    else
-		((al >= 0x7a && al <= 0x7F)) && OF=1
-	    fi
 	    al_check=0x99
-	    (( oldaf )) && al_check=0x9F
+	    (( AF==1 )) && al_check=0x9F
+
+	    # ugly...
+	    (( CF==0 && al >= 0x7A && al <= 0x7F )) && OF=1
+	    (( CF==1 && al >= 0x1A && al <= 0x7F )) && OF=1
 	    if (( (al & 0xF) > 9 || AF == 1 )) ; then
 		res=$((al + 0x6))
 		AF=1
@@ -2025,9 +2018,8 @@ execop() {
 		res=$al
 		AF=0
 	    fi
-	    if (( al > al_check || oldcf == 1 )) ; then
+	    if (( al > al_check || CF == 1 )) ; then
 		res=$((res + 0x60))
-		printf "daa2: %.4x\n" $res
 		CF=1
 	    else
 		CF=0
@@ -2037,6 +2029,32 @@ execop() {
 	    setszp $res 0xff
 	    ;;
 	DAS) # 2F
+	    OF=0
+	    al=$(getreg 0 0xff)
+	    al_check=0x99
+	    (( AF==1 )) && al_check=0x9F
+
+	    # ugly...
+	    (( AF==0 && CF==0 && al >= 0x9a && al <= 0xDF)) && OF=1
+	    (( AF==1 && CF==0 && al >= 0x80 && al <= 0x85)) && OF=1
+	    (( AF==1 && CF==0 && al >= 0xA0 && al <= 0xE5)) && OF=1
+	    (( AF==0 && CF==1 && al >= 0x80 && al <= 0xDF)) && OF=1
+	    (( AF==1 && CF==1 && al >= 0x80 && al <= 0xE5)) && OF=1
+	    if (( (al & 0xF) > 9 || AF == 1 )) ; then
+		res=$((al - 0x06))
+		AF=1
+	    else
+		res=$al
+		AF=0
+	    fi
+	    if (( al > al_check || CF == 1 )) ; then
+		res=$((res - 0x60))
+		CF=1
+	    else
+		CF=0
+	    fi
+	    setreg 0 $res 0xff
+	    setszp $res 0xff
 	    ;;
 	NOP | WAIT) ;;
 	*) printf " noval\n" ; return ;;
