@@ -2,17 +2,6 @@
 
 This is a toy emulator for x86 written in Bash.  It's about as slow as you can imagine....
 
-| Flag checks |
-| ----------- |
-| OF ✅ Pass |
-| DF ✅ Pass |
-| IF ✅ Pass |
-| SF ✅ Pass |
-| ZF ✅ Pass |
-| AF ❌ Fail |
-| PF ✅ Pass |
-| CF ✅ Pass |
-
 The script works well enough to pass many of the tests from:
 https://github.com/SingleStepTests/8088/tree/main/v2
 
@@ -71,14 +60,14 @@ eg run ./86json.sh 00.json
 | 33 | ✅ Pass | 33 XOR Gv Ev |
 | 34 | ✅ Pass | 34 XOR rAL Ib |
 | 35 | ✅ Pass | 35 XOR rvAX Iv |
-| 37 | ❌ Fail | 37 AAA   |
+| 37 | ✅ Pass | 37 AAA   |
 | 38 | ✅ Pass | 38 CMP Eb Gb |
 | 39 | ✅ Pass | 39 CMP Ev Gv |
 | 3A | ✅ Pass | 3A CMP Gb Eb |
 | 3B | ✅ Pass | 3B CMP Gv Ev |
 | 3C | ✅ Pass | 3C CMP rAL Ib |
 | 3D | ✅ Pass | 3D CMP rvAX Iv |
-| 3F | ❌ Fail | 3F AAS   |
+| 3F | ✅ Pass | 3F AAS   |
 | 40 | ✅ Pass | 40 INC gv  |
 | 41 | ✅ Pass | 41 INC gv  |
 | 42 | ✅ Pass | 42 INC gv  |
@@ -110,23 +99,23 @@ eg run ./86json.sh 00.json
 | 5C | ✅ Pass | 5C POP gv  |
 | 5D | ✅ Pass | 5D POP gv  |
 | 5E | ✅ Pass | 5E POP gv  |
-| 5F | ✅ Pass | 5F POP gv  |
-| 60 | ❌ Fail | none |
-| 61 | ❌ Fail | none |
-| 62 | ❌ Fail | none |
-| 63 | ❌ Fail | none |
-| 64 | ❌ Fail | none |
-| 65 | ❌ Fail | none |
-| 66 | ❌ Fail | none |
-| 67 | ❌ Fail | none |
-| 68 | ❌ Fail | none |
-| 69 | ❌ Fail | none |
-| 6A | ❌ Fail | none |
-| 6B | ❌ Fail | none |
-| 6C | ❌ Fail | none |
-| 6D | ❌ Fail | none |
-| 6E | ❌ Fail | none |
-| 6F | ❌ Fail | none |
+| 5F | ✅ Pass | 5F POP gv |
+| 60 | ✅ Pass | 60 PUSHA |
+| 61 | ✅ Pass | 61 POPA |
+| 62 | ✅ Pass | 62 BOUND |
+| 63 | ✅ Pass | 63 ARPL |
+| 64 | ✅ Pass | 64 SEG FS |
+| 65 | ✅ Pass | 65 SEG GS |
+| 66 | ✅ Pass | none |
+| 67 | ✅ Pass | none |
+| 68 | ✅ Pass | none |
+| 69 | ✅ Pass | none |
+| 6A | ✅ Pass | none |
+| 6B | ✅ Pass | none |
+| 6C | ✅ Pass | 6C INS Yb rDX |
+| 6D | ✅ Pass | 6D INS Yv rDX |
+| 6E | ✅ Pass | 6E OUTS rDX Xb |
+| 6F | ✅ Pass | 6F OUTS rDX Xv |
 | 70 | ✅ Pass | 70 JCC Jb  |
 | 71 | ✅ Pass | 71 JCC Jb  |
 | 72 | ✅ Pass | 72 JCC Jb  |
@@ -234,66 +223,50 @@ eg run ./86json.sh 00.json
 | BD | ✅ Pass | BD MOV gv Iv |
 | BE | ✅ Pass | BE MOV gv Iv |
 | BF | ✅ Pass | BF MOV gv Iv |
-| C0 | ❌ Fail | C0 GRP2 Eb Ib |
-| C1 | ❌ Fail | C1 GRP2 Ev Ib |
-| C2 | ✅ Pass | C2 RET Iw  |
-| C3 | ✅ Pass | C3 RET   |
-| C4 | ✅ Pass | C4 LES Gv Mp |
-| C5 | ✅ Pass | C5 LDS Gv Mp |
-| C6 | ✅ Pass | C6 MOV Eb Ib |
-| C7 | ✅ Pass | C7 MOV Ev Iv |
-| C8 | ❌ Fail | none |
-| C9 | ❌ Fail | none |
-| CA | ✅ Pass | CA RETF Iw  |
-| CB | ✅ Pass | CB RETF   |
-| CC | ✅ Pass | CC INT i3  |
-| CD | ✅ Pass | CD INT Ib  |
-| CE | ❌ Fail | CE INTO   |
-| CF | ❌ Fail | CF IRET   |
-| D0.0 | ❌ Fail | D0.0 ROL Eb i1 |
-| D0.1 | ❌ Fail | D0.1 ROR Eb i1 |
-| D0.2 | ❌ Fail | D0.2 RCL Eb i1 |
-| D0.3 | ❌ Fail | D0.3 RCR Eb i1 |
-| D0.4 | ❌ Fail | D0.4 SHL Eb i1 |
-| D0.5 | ❌ Fail | D0.5 SHR Eb i1 |
-| D0.6 | ❌ Fail | D0.6 SAL Eb i1 |
-| D0.7 | ❌ Fail | D0.7 SAR Eb i1 |
-| D1.0 | ❌ Fail | D1.0 ROL Ev i1 |
-| D1.1 | ❌ Fail | D1.1 ROR Ev i1 |
-| D1.2 | ❌ Fail | D1.2 RCL Ev i1 |
-| D1.3 | ❌ Fail | D1.3 RCR Ev i1 |
-| D1.4 | ❌ Fail | D1.4 SHL Ev i1 |
-| D1.5 | ❌ Fail | D1.5 SHR Ev i1 |
-| D1.6 | ❌ Fail | D1.6 SAL Ev i1 |
-| D1.7 | ❌ Fail | D1.7 SAR Ev i1 |
-| D2.0 | ❌ Fail | D2.0 ROL Eb rCL |
-| D2.1 | ❌ Fail | D2.1 ROR Eb rCL |
-| D2.2 | ❌ Fail | D2.2 RCL Eb rCL |
-| D2.3 | ❌ Fail | D2.3 RCR Eb rCL |
-| D2.4 | ❌ Fail | D2.4 SHL Eb rCL |
-| D2.5 | ❌ Fail | D2.5 SHR Eb rCL |
-| D2.6 | ❌ Fail | D2.6 SAL Eb rCL |
-| D2.7 | ❌ Fail | D2.7 SAR Eb rCL |
-| D3.0 | ❌ Fail | D3.0 ROL Ev rCL |
-| D3.1 | ❌ Fail | D3.1 ROR Ev rCL |
-| D3.2 | ❌ Fail | D3.2 RCL Ev rCL |
-| D3.3 | ❌ Fail | D3.3 RCR Ev rCL |
-| D3.4 | ❌ Fail | D3.4 SHL Ev rCL |
-| D3.5 | ❌ Fail | D3.5 SHR Ev rCL |
-| D3.6 | ❌ Fail | D3.6 SAL Ev rCL |
-| D3.7 | ❌ Fail | D3.7 SAR Ev rCL |
-| D4 | ❌ Fail | D4 AAM Ib  |
+| D0.0 | ✅ Pass | D0.0 ROL Eb i1 |
+| D0.1 | ✅ Pass | D0.1 ROR Eb i1 |
+| D0.2 | ✅ Pass | D0.2 RCL Eb i1 |
+| D0.3 | ✅ Pass | D0.3 RCR Eb i1 |
+| D0.4 | ✅ Pass | D0.4 SHL Eb i1 |
+| D0.5 | ✅ Pass | D0.5 SHR Eb i1 |
+| D0.6 | ✅ Pass | D0.6 SAL Eb i1 |
+| D0.7 | ✅ Pass | D0.7 SAR Eb i1 |
+| D1.0 | ✅ Pass | D1.0 ROL Ev i1 |
+| D1.1 | ✅ Pass | D1.1 ROR Ev i1 |
+| D1.2 | ✅ Pass | D1.2 RCL Ev i1 |
+| D1.3 | ✅ Pass | D1.3 RCR Ev i1 |
+| D1.4 | ✅ Pass | D1.4 SHL Ev i1 |
+| D1.5 | ✅ Pass | D1.5 SHR Ev i1 |
+| D1.6 | ✅ Pass | D1.6 SAL Ev i1 |
+| D1.7 | ✅ Pass | D1.7 SAR Ev i1 |
+| D2.0 | ✅ Pass | D2.0 ROL Eb rCL |
+| D2.1 | ✅ Pass | D2.1 ROR Eb rCL |
+| D2.2 | ✅ Pass | D2.2 RCL Eb rCL |
+| D2.3 | ✅ Pass | D2.3 RCR Eb rCL |
+| D2.4 | ✅ Pass | D2.4 SHL Eb rCL |
+| D2.5 | ✅ Pass | D2.5 SHR Eb rCL |
+| D2.6 | ✅ Pass | D2.6 SAL Eb rCL |
+| D2.7 | ✅ Pass | D2.7 SAR Eb rCL |
+| D3.0 | ✅ Pass | D3.0 ROL Ev rCL |
+| D3.1 | ✅ Pass | D3.1 ROR Ev rCL |
+| D3.2 | ✅ Pass | D3.2 RCL Ev rCL |
+| D3.3 | ✅ Pass | D3.3 RCR Ev rCL |
+| D3.4 | ✅ Pass | D3.4 SHL Ev rCL |
+| D3.5 | ✅ Pass | D3.5 SHR Ev rCL |
+| D3.6 | ✅ Pass | D3.6 SAL Ev rCL |
+| D3.7 | ✅ Pass | D3.7 SAR Ev rCL |
+| D4 | ✅ Pass | D4 AAM Ib  |
 | D5 | ❌ Fail | D5 AAD Ib  |
-| D6 | ❌ Fail | D6 SALC   |
-| D7 | ❌ Fail | D7 XLAT   |
-| D8 | ❌ Fail | none |
-| D9 | ❌ Fail | none |
-| DA | ❌ Fail | none |
-| DB | ❌ Fail | none |
-| DC | ❌ Fail | none |
-| DD | ❌ Fail | none |
-| DE | ❌ Fail | none |
-| DF | ❌ Fail | none |
+| D6 | ✅ Pass | D6 SALC   |
+| D7 | ✅ Pass | D7 XLAT   |
+| D8 | ✅ Pass | none |
+| D9 | ✅ Pass | none |
+| DA | ✅ Pass | none |
+| DB | ✅ Pass | none |
+| DC | ✅ Pass | none |
+| DD | ✅ Pass | none |
+| DE | ✅ Pass | none |
+| DF | ✅ Pass | none |
 | E0 | ✅ Pass | E0 LOOPNZ Jb  |
 | E1 | ✅ Pass | E1 LOOPZ Jb  |
 | E2 | ✅ Pass | E2 LOOP Jb  |
@@ -301,7 +274,7 @@ eg run ./86json.sh 00.json
 | E4 | ✅ Pass | E4 IN rAL Ib |
 | E5 | ✅ Pass | E5 IN rvAX Ib |
 | E6 | ✅ Pass | E6 OUT Ib rAL |
-| E7 | ❌ Fail | E7 OUT Iv rvAX |
+| E7 | ✅ Pass | E7 OUT Iv rvAX |
 | E8 | ✅ Pass | E8 CALL Jv  |
 | E9 | ✅ Pass | E9 JMP Jv  |
 | EA | ✅ Pass | EA JMP Ap  |
@@ -343,4 +316,3 @@ eg run ./86json.sh 00.json
 | FF.5 | ✅ Pass | FF.5 JMP Mp |
 | FF.6 | ✅ Pass | FF.6 PUSH Ev |
 | FF.7 | ❌ Fail | none |
-
