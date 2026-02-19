@@ -128,17 +128,43 @@ setreg() {
     X86_REGS[$num]=$(((X86_REGS[num] & ~mask) | val))
 }
 
+# v1 v2  r
+#  0  0  0 _
+#  0  0  1 1
+#  0  1  0 _
+#  0  1  1 _
+#  1  0  0 _
+#  1  0  1 _
+#  1  1  0 1
+#  1  1  1 _
+addof() {
+    local r=$1 v1=$2 v2=$3 mask=$4
+    OF=$((( (v1 ^ res) & (v2 ^ res) & mask) != 0 ))
+    printf "addof: %.4x %.4x %.4x %.4x => $OF\n" $r $v1 $v2 $mask
+}
+
+setcf() {
+    local r=$1 v1=$2 v2=$3 mask=$4
+    CF=$(( (((v1 & v2) | ((v1 | v2) & ~r)) & mask) != 0))
+}
+
+setaf() {
+    local v1=$1 v2=$2
+    AF=$(( (v1 & 0xF) + (v2 & 0xF) > 0xF ))
+}
+
 setszp() {
-    local res=$1 mask=$2
+    local sres=$1 mask=$2
     case $mask in
 	0xff) sgn=0x80 ;;
 	0xffff) sgn=0x8000 ;;
 	0xffffffff) sgn=0x80000000 ;;
 	0xffffffffffffffff) sgn=
     esac
-    ZF=$(((res & mask) == 0))
-    SF=$(((res & sgn) != 0))
-    PF=$(parity $res)
+    ZF=$(((sres & mask) == 0))
+    SF=$(((sres & sgn) != 0))
+    PF=$(parity $sres)
+    printf "szp: %x $PF\n" $sres
 }
 
 # Get register value
@@ -1050,6 +1076,7 @@ decarg() {
 	gb | gv) mkreg $out $opg $mask ;;
 	Eb | Ev | Ew) mkea $out $opmrr $mask ;;
 	Mp)
+	    # Memory pointer 16:32 or 16:16
 	    if (( $(((opmrr >> 6) & 3)) == 3 )) ; then
 		echo "REG for Mp!"
 		fault=0x6
@@ -1078,10 +1105,10 @@ decarg() {
 	    fetchv IR
 	    printf -v "$out" "imm 0x%x 0xffff" $((X86_REGS[15] + $IR))
 	    ;;
-	rCL) mkreg $out 1 0xff ;;
 	rAL) mkreg $out 0 0xff ;;
-	rvAX) mkreg $out 0 $mask ;;
+	rCL) mkreg $out 1 0xff ;;
 	rDX) mkreg $out 2 0xffff ;;
+	rvAX) mkreg $out 0 $mask ;;
 	i1) mkimm $out 1 $mask ;;
 	i3) mkimm $out 3 $mask ;;
 	Ib) fetch8 IR ; mkimm $out $IR $mask ;;
@@ -1096,6 +1123,7 @@ decarg() {
 	    mkimm $out $IR 0xffff
 	    ;;
 	Ap)
+	    # ptr16:16 or ptr16:32
 	    fetchv AR
 	    fetch16 IR
 	    printf -v "$out" "ptr 0x%x 0x%.4x" $IR $AR
@@ -1362,9 +1390,9 @@ aluop() {
     case $ncf in
 	1)
 	    # add/adc
-	    AF=$(((v1 & 0xF) + (v2 & 0xF) > 0xF))
-	    OF=$((((v1 ^ res) & (v2 ^ res) & sgn) != 0))
-	    CF=$(((((v1 & v2) | (v1 & ~res) | (v2 & ~res)) & sgn) != 0))
+	    setaf $v1 $v2
+	    addof $res $v1 $v2 $sgn
+	    setcf $res $v1 $v2 $sgn
 	    ;;
 	2)
 	    # sub/sbb/neg
@@ -1374,8 +1402,8 @@ aluop() {
 	    ;;
 	3)
 	    # inc only sets OF
-	    OF=$((((v1 ^ res) & (v2 ^ res) & sgn) != 0))
-	    AF=$(((v1 & 0xF) == 0xF))
+	    addof $res $v1 $v2 $sgn
+	    setaf $v1 0x1
 	    ;;
 	4)
 	    # dec only sets OF
@@ -1414,15 +1442,18 @@ mulfn() {
     PF=0
     SF=0
     ZF=0
+    # Loop multiply algorithm
     while [[ $TMPB -ne 0 ]]; do
 	printf "loop %x %x %x\n" $PROD $TMPA $TMPB
 	if [[ $((TMPB & 1)) != 0 ]] ; then
 	    local R=$((PROD + TMPA))
+	    local A=$(((PROD & 0xF) + (TMPA & 0xF)))
+	    setszp $R 0xffff
 	    CF=$((R > 0xffff))
+	    AF=$((A > 0xF))
+	    printf " PROD %x %x %x\n" $((R & 0xF)) $((TMPA & 0xF)) $A
 	    
 	    PROD=$((R & 0xffff))
-	    setszp $PROD 0xffff
-	    echo "parity $PF"
 	fi
 	TMPA=$(((TMPA << 1) & 0xffff))
 	TMPB=$((TMPB >> 1))
@@ -1448,6 +1479,7 @@ execop() {
 
     # get sign bit
     sgn=$(printf "0x%x" $((osize - (osize >> 1))))
+    opgrp=$((opmrr & 0xFFF00))
     case $opfn in
 	MOVS | LODS | STOS)
 	    checkpg $s1
@@ -1499,11 +1531,12 @@ execop() {
 	    ;;
 	MOVSX)
 	    execval v1 "$s2"
-	    opgrp=$((opmrr & 0xFFFF00))
 	    if [[ $opgrp -eq 0xfbe00 ]] ; then
+		# 8->16 bit
 		signex v1 $v1 0xff 0x80
 	    fi
 	    if [[ $opgrp -eq 0x0fbf00 ]] ; then
+		# 16->32 bit
 		signex v1 $v1 0xffff 0x8000
 	    fi
 	    printf "moo 0x%x 0x%x\n" $opgrp $v1
@@ -1527,7 +1560,6 @@ execop() {
 	    execset "$s1" -1
 	    ;;
 	IMUL)
-	    opgrp=$((opmrr & 0xFFF00))
 	    printf "opgrp %x\n" $opgrp
 	    if (( $opgrp == 0xfaf00 )) ; then
 		# imul Gv = Gv * Ev
@@ -1600,7 +1632,6 @@ execop() {
 	    fi
 	    ;;
 	MUL)
-	    opgrp=$((opmrr & 0xFFF00))
 	    printf "opgrp %x\n" $opgrp
 	    if (( $opgrp == 0xf600 )) ; then
 		# mul/imul ax = al * Eb
@@ -1614,11 +1645,16 @@ execop() {
 		v1=$(getreg 0 $osize)
 		execval v2 "$s1"
 		mulfn res $v1 $v2 $osize
+		case $osize in
+		    0xffff)
+			setreg 0 $res 0xffff
+			setreg 2 $((res >> 16)) 0xffff
+			;;
+		esac
 	    fi
 	    printf "mul [%x] [%x] -> %x\n" $v1 $v2 $res
 	    ;;
 	DIV)
-	    opgrp=$((opmrr & 0xFF00))
 	    execval v2 "$s1"
 	    if [[ $opgrp -eq 0xF600 ]]; then
 		# AH = AX % Eb
@@ -1835,7 +1871,6 @@ execop() {
 	    ;;
 	POP)
 	    popv v1 
-	    printf "popping.... $v1\n"
 	    execset "$s1" $v1
 	    ;;
 	LAHF)
@@ -1848,7 +1883,6 @@ execop() {
 	    ;;
 	POPF)
 	    popv v1
-	    printf "set flags %x\n" $v1
 	    setreg FLAGS $v1 0xfd5
 	    getflags
 	    ;;
@@ -1862,10 +1896,10 @@ execop() {
 	    ;;
 	INT)
 	    execval v1 "$s1"
-	    vector $v1 ${X86_REGS[15]}
+	    vector $v1 $(getreg IP 0xffff)
 	    ;;
 	INTO)
-	    (( OF == 1 )) && vector 0x4 ${X86_REGS[15]}
+	    (( OF == 1 )) && vector 0x4 $(getreg IP 0xffff)
 	    ;;
 	IRET)
 	    popv npc
@@ -1908,7 +1942,7 @@ execop() {
 	    if (( ((al & 0xF) > 9 || AF == 1 ) )); then
 		setreg 4 $((ah + 1)) 0xff
 		res=$(((al + 6) & 0xff))
-		OF=$(( (~(al ^ 6) & (al ^ res) & 0x80) != 0 ))
+		addof $res $al 0x6 0x80
 		AF=1
 		CF=1
 	    else
@@ -1939,7 +1973,7 @@ execop() {
 	    setszp $res 0xff
 	    setreg 0 $((res & 0xF)) 0xff
 	    ;;
-	AAM)
+	AAM) # D4
 	    al=$(getreg 0 0xff)
 	    fl=$(getreg FLAGS 0xffff)
 	    execval v1 "$s1"
@@ -1948,31 +1982,59 @@ execop() {
 	    OF=0
 	    CF=0
 	    if (( v1 == 0 )); then
+		# Set flags as if zero
 		setszp 0x0 0xff
-		pc=$(getreg IP $osize)
-		vector 0 $pc
+		vector 0 $(getreg IP $osize)
 	    else 
 		res=$((al % v1))
+		# Set flags based on mod
 		setszp $res 0xff
 		setreg 0 $res 0xff
 		setreg 4 $((al / v1)) 0xff
 	    fi
 	    ;;
-	AAD)
+	AAD) # D5
 	    al=$(getreg 0 0xff)
 	    ah=$(getreg 4 0xff)
 	    execval v1 "$s1"
-	    ores=$(((ah * v1) & 0xff))
+	    ores=$((ah * v1))
 	    res=$((ores + al))
-	    CF=$((res > 0xff))
-	    AF=$(((ores & 0xF) + (al & 0xF) > 9))
-	    OF=$(((~(ores ^ al) & (ores ^ res) & 0x80) != 0 )) 
-	    printf "aad %x %x %x [ %x -> %x]\n" $ah $al $v1 $ores $res
-
+	    addof $res $ores $al 0x80
+	    setcf $res $ores $al 0x80
+	    setaf $ores $al
 	    setszp $res 0xff
-	    setreg 0 $((res & 0xff)) 0xffff
+	    setreg 0 $((res & 0xFF)) 0xffff
 	    ;;
 	DAA) # 27
+	    OF=0
+	    oldcf=$CF
+	    oldaf=$AF
+	    al=$(getreg 0 0xff)
+	    CF=0
+	    if (( oldcf != 0 )) ; then
+		((al >= 0x1a && al <= 0x7F)) && OF=1
+	    else
+		((al >= 0x7a && al <= 0x7F)) && OF=1
+	    fi
+	    al_check=0x99
+	    (( oldaf )) && al_check=0x9F
+	    if (( (al & 0xF) > 9 || AF == 1 )) ; then
+		res=$((al + 0x6))
+		AF=1
+	    else
+		res=$al
+		AF=0
+	    fi
+	    if (( al > al_check || oldcf == 1 )) ; then
+		res=$((res + 0x60))
+		printf "daa2: %.4x\n" $res
+		CF=1
+	    else
+		CF=0
+	    fi
+	    printf "daa res al:%x res:%x\n" $al $res
+	    setreg 0 $res 0xff
+	    setszp $res 0xff
 	    ;;
 	DAS) # 2F
 	    ;;
