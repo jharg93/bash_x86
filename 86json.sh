@@ -68,10 +68,11 @@ check() {
 	case $key in
 	    # hack. ignore AF for now
 	    flags|eflags)
-		value=$((value & ~0x10))
-		rv=$((rv & ~0x10))
+#		value=$((value & ~0x10))
+#		rv=$((rv & ~0x10))
 		if [[ "$rv" -ne "$value" ]] ; then
 		    printf "flags mismatch %x %s %x %s\n" $value $(fstr $value) $rv $(fstr $rv)
+		    error=1
 		fi
 		;;
 	    *)
@@ -128,12 +129,13 @@ execone() {
     # Loop while prefix set
     pfx=1
     rep=""
-    lock=""
+    lock=0
     seg=""
-    fault=0
+    fault=99
     osize=0xffff
     asize=0xffff
     mask=0xffff
+    lastfetch=0
     if [[ $cpu_type == 80386 ]] ; then
 	echo "32-bit"
     fi
@@ -147,11 +149,29 @@ execone() {
 	fi
 	printf "opcode is 0x%x %x\n" $opcode ${X86_REGS[15]}
 	decode $opcode
+	printf -- "---- done pfx $pfx $fault $lastfetch\n"
+	printf " %x OF=$OF SF=$SF ZF=$ZF AF=$AF PF=$PF CF=$CF DF=$DF IF=$IF seg=$seg\n" ${X86_REGS[14]}
+	if [[ $fault != 99 ]] ; then
+	    vector $fault $spc
+	    break
+	fi
     done
     if [[ $cpu_type == 80386 ]] ; then
+	prefault=$fault
+	pc=$(getreg 15 $osize)
+	echo "prefetch $pc"
 	fetch8 prefetch
+	pc=$(getreg 15 $osize)
+	setreg 15 $pc 0xffff
+	if [[ $fault != $prefault ]] ; then
+	    echo "post fault: $fault"
+	    vector $fault 0
+	    pc=$(getreg 15 $osize)
+	    setreg 15 $((pc+1)) 0xfffff
+	fi
     fi
-    echo "---- done"
+    echo "---- donex"
+    printf " %x OF=$OF SF=$SF ZF=$ZF AF=$AF PF=$PF CF=$CF DF=$DF IF=$IF seg=$seg\n" ${X86_REGS[14]}
     setflags
 }
 
@@ -190,6 +210,13 @@ loadtsv() {
 		# initial.mem
 		X86_MEM[$key]=$val
 		if [ $verbose != 0 ] ; then
+		    case $key in
+			0) echo "ff:DIVZ" ;;
+			48) echo "ff:SS" ;;
+			52) echo "ff:GP" ;;
+			00) echo "ff:DV" ;;
+			24) echo "ff:UD" ;;
+		    esac
 		    printf "$key <- %x [${X86_MEM[$key]}]\n" $val
 		fi
 		;;
