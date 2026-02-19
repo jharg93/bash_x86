@@ -142,11 +142,6 @@ addof() {
     OF=$((( (v1 ^ res) & (v2 ^ res) & mask) != 0 ))
     printf "addof: %.4x %.4x %.4x %.4x => $OF\n" $r $v1 $v2 $mask
 }
-subof() {
-    local r=$1 v1=$2 v2=$3 mask=$4
-    OF=$((( (v1 ^ v2) & (v1 ^ res) & mask) != 0 ))
-    printf "subof: %.4x %.4x %.4x %.4x => $OF\n" $r $v1 $v2 $mask
-}
 
 setcf() {
     local r=$1 v1=$2 v2=$3 mask=$4
@@ -513,10 +508,10 @@ grpop() {
 #  D6 = salc
 #  0F = pop cs
 #  6x = jcc
-#  C0 = ret Iw
+#  C0 = ret
 #  C1 = ret
-#  C8 = retf Iw
-#  C9 = retf
+#  C8 = retf Ib
+#  C9 = ret
 #  F1 = lock
 #  82.x = Ib
 #  83.x = Sb
@@ -935,6 +930,21 @@ mkea32() {
     printf -v "$out" "mem $val 0x%x 0x%x $mm $rrr" $off $mask
 }    
 
+# Ob/Ov
+mkmem() {
+    local out=$1 mask=$2
+    printf "mkmem: $osize $asize\n"
+    if [[ $asize -eq 0xffff ]]; then
+	fetch16 off
+    else
+	fetch16 V0
+	fetch16 V1
+	off=$(((V1 << 16) + V0))
+    fi
+    getseg val "seg 3" "$seg" "ObOv"
+    printf -v "$out" "mem $val 0x%x 0x%x" $off $mask
+}
+
 # Create effective address
 mkea() {
     local out=$1
@@ -1078,27 +1088,8 @@ decarg() {
 	Gb | Gv) mkreg $out ${ggg} $mask ;;
 	gb | gv) mkreg $out $opg $mask ;;
 	Eb | Ev | Ew) mkea $out $opmrr $mask ;;
-	Mp)
-	    # Memory pointer 16:32 or 16:16
-	    if (( $(((opmrr >> 6) & 3)) == 3 )) ; then
-		echo "REG for Mp!"
-		fault=0x6
-		return
-	    fi
-	    mkea $out $opmrr $mask ;;
-	Ob)
-	    if [[ $asize -eq 0xffffffff ]]; then
-		mkea $out 0x5 $mask
-	    else
-		mkea $out 0x6 $mask
-	    fi
-	    ;;
-	Ov) if [[ $asize -eq 0xffffffff ]]; then
-		mkea $out 0x5 $asize
-	    else
-		mkea $out 0x6 $asize
-	    fi
-	    ;;
+	Ob) mkmem $out $mask ;;
+	Ov) mkmem $out $osize ;;
 	Jb)
 	    fetch8 IR
 	    local addr=$(add8 ${X86_REGS[15]} $IR)
@@ -1125,6 +1116,14 @@ decarg() {
 	    fi
 	    mkimm $out $IR 0xffff
 	    ;;
+	Mp)
+	    # Memory pointer 16:32 or 16:16
+	    if (( $(((opmrr >> 6) & 3)) == 3 )) ; then
+		echo "REG for Mp!"
+		fault=0x6
+		return
+	    fi
+	    mkea $out $opmrr $mask ;;
 	Ap)
 	    # ptr16:16 or ptr16:32
 	    fetchv AR
@@ -1399,8 +1398,8 @@ aluop() {
 	    ;;
 	2)
 	    # sub/sbb/neg
-	    subof $res $v1 $v2 $sgn
 	    AF=$(((v1 & 0xF) < (v2 & 0xF)))
+	    OF=$((((v1 ^ v2) & (v1 ^ res) & sgn) != 0))
 	    CF=$(((((~v1 & v2) | ((~v1 | v2) & res)) & sgn) != 0))
 	    ;;
 	3)
@@ -1410,7 +1409,7 @@ aluop() {
 	    ;;
 	4)
 	    # dec only sets OF
-	    subof $res $v1 0x1 $sgn
+	    OF=$((((v1 ^ v2) & (v1 ^ res) & sgn) != 0))
 	    AF=$(((v1 & 0xF) == 0x0))
 	    ;;
 	6)
@@ -1963,8 +1962,8 @@ execop() {
 	    printf "aas: %.2x %.2x\n" $ah $al
 	    if (( ((al & 0xF) > 9 || AF == 1 ) )) ; then
 		setreg 4 $((ah - 1)) 0xff
-		res=$((al - 6))
-		subof $res $al 0x6 0x80
+		res=$(((al - 6) & 0xff))
+		OF=$(( ((al ^ 6) & (al ^ res) & 0x80) != 0 ))
 		AF=1
 		CF=1
 	    else
@@ -2013,9 +2012,12 @@ execop() {
 	    al=$(getreg 0 0xff)
 	    al_check=0x99
 	    (( AF==1 )) && al_check=0x9F
+
+	    # ugly...
+	    (( CF==0 && al >= 0x7A && al <= 0x7F )) && OF=1
+	    (( CF==1 && al >= 0x1A && al <= 0x7F )) && OF=1
 	    if (( (al & 0xF) > 9 || AF == 1 )) ; then
 		res=$((al + 0x6))
-		addof $res $al 0x06 0x80
 		AF=1
 	    else
 		res=$al
@@ -2023,7 +2025,6 @@ execop() {
 	    fi
 	    if (( al > al_check || CF == 1 )) ; then
 		res=$((res + 0x60))
-		addof $res $al 0x60 0x80
 		CF=1
 	    else
 		CF=0
