@@ -200,7 +200,7 @@ checkpg() {
 	0xffffffff) size=4 ;;
 	*) size=8;;
     esac
-    if (( $off+$size > 0x10000 )) ; then
+    if (( $cpu_type == 80386 && $off+$size > 0x10000 )) ; then
 	echo "checkpg [$f] [$seg] [$off] [$mask]"
 	fault=$f
     fi
@@ -478,12 +478,36 @@ grpop() {
 }
 
 # Setup opcodes
+# undocumented:
+#  D6 = salc
+#  0F = pop cs
+#  6x = jcc
+#  C0 = ret
+#  C1 = ret
+#  C8 = retf Ib
+#  C9 = ret
+#  F1 = lock
+#  82.x = Ib
+#  83.x = Sb
+#  D0.6 = setmo
+#  D1.6 = setmo
+#  D2.6 = setmo
+#  D3.6 = setmo
+#  F6.1 = test
+#  F7.1 = test
+#  FE.2 = call
+#  FE.3 = call
+#  FE.4 = jmp
+#  FE.5 = jmp
+#  FE.6 = push
+#  FE.7 = push
+#  FF.7 = push
 eregs=(EAX ECX EDX EBX ESP EBP ESI EDI)
 grp1=(ADD OR ADC SBB AND SUB XOR CMP)
 grp2=(ROL ROR RCL RCR SHL SHR SETMO SAR)
 grp3=(TEST TEST NOT NEG MUL IMUL DIV IDIV)
 grp4=(INC DEC)
-grp5=(INC DEC CALL CALLF JMP JMPF PUSH)
+grp5=(INC DEC CALL CALLF JMP JMPF PUSH PUSH)
 grp6=(SLDT STR LLDT LTR VERR VERW)
 grp7=(SGDT SIDT LGDT LIDT SMSW __ LMSW __)
 grp8=(__ __ __ __ BT BTS BTR BTC)
@@ -511,6 +535,8 @@ for i in {0..7}; do
   setop $((0x68+i)) JCC Jb
   setop $((0x70+i)) JCC Jb
   setop $((0x78+i)) JCC Jb
+
+  setop $((0xD8+i)) NOP Gb Eb MRR
 done
 
 setop 0x06 PUSH rES
@@ -977,7 +1003,7 @@ strop() {
     # Memory address
     getseg val "$vs" "" "strop"
     printf -v "$out" "mem $val 0x%x 0x%x" $voff $mask
-    if (( voff + delta > 0xffff )) ; then
+    if (( $cpu_type == 80386 && voff + delta > 0xffff )) ; then
 	sv=($val)
 	fault=${sv[0]}
 	echo "ACK"
@@ -1336,6 +1362,7 @@ aluop() {
     case $ncf in
 	1)
 	    # add/adc
+	    AF=$(((v1 & 0xF) + (v2 & 0xF) > 0xF))
 	    OF=$((((v1 ^ res) & (v2 ^ res) & sgn) != 0))
 	    CF=$(((((v1 & v2) | (v1 & ~res) | (v2 & ~res)) & sgn) != 0))
 	    ;;
@@ -1362,6 +1389,7 @@ aluop() {
 	0)
 	    OF=0
 	    CF=0
+	    AF=0
 	    ;;
     esac
     ZF=$((res == 0))
@@ -1489,11 +1517,14 @@ execop() {
 	    shiftop $opfn "$s1" "$s2"
 	    ;;
 	SETMO)
+	    execval v1 "$s1"
+	    execval v2 "$s2"
+	    printf "setmo $v1 $v2"
 	    CF=0
 	    AF=0
 	    OF=0
 	    setszp 0xff 0xff
-	    execset "$s1" 0xff 
+	    execset "$s1" -1
 	    ;;
 	IMUL)
 	    opgrp=$((opmrr & 0xFFF00))
