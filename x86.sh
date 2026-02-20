@@ -148,9 +148,14 @@ setcf() {
     CF=$(( (((v1 & v2) | ((v1 | v2) & ~r)) & mask) != 0))
 }
 
+setaf2() {
+    local v1=$1 v2="$2" v3="$3"
+    AF=$(((v1 & 0xF) < ((v2 & 0xF) + v3)))
+}
+
 setaf() {
-    local v1=$1 v2=$2
-    AF=$(( (v1 & 0xF) + (v2 & 0xF) > 0xF ))
+    local v1=$1 v2="$2" v3="$3"
+    AF=$(( (v1 & 0xF) + (v2 & 0xF) + v3 > 0xF ))
 }
 
 setszp() {
@@ -1363,7 +1368,7 @@ aluop() {
     fi
     local ncf=0
     res="0xdeadbeef"
-    printf "alu: $opfn %.4x %.4x\n" $v1 $v2
+    printf "alu: $opfn %.4x %.4x cf:$CF\n" $v1 $v2
     smask=$(execsz "$s1")
     if [[ $smask -eq 0xffffffffffffffff ]] ; then
 	sgn=0x8000000000000000
@@ -1371,19 +1376,20 @@ aluop() {
 	sgn=$(printf "0x%x" $((smask - (smask >> 1))))
     fi
     case $opfn in
-	ADD) res=$((v1 + v2)) ; ncf=1 ;;
-	ADC) res=$((v1 + v2 + CF)) ; ncf=1 ;;
-	SUB) res=$((v1 - v2)) ; ncf=2 ;;
-	SBB) res=$((v1 - v2 - CF)) ; ncf=2 ;;
+	ADD) res=$((v1 + v2)) ; setaf $v1 $v2 0 ; ncf=1 ;;
+	OR)  res=$((v1 | v2)) ;;
+	ADC) res=$((v1 + v2 + CF)) ; setaf $v1 $v2 $CF ; ncf=1 ;;
+	SBB) res=$((v1 - v2 - CF)) ; setaf2 $v1 $v2 $CF ; ncf=2 ;;
+	AND) res=$((v1 & v2)) ;;
+	SUB) res=$((v1 - v2)) ; setaf2 $v1 $v2 ; ncf=2 ;;
+	XOR) res=$((v1 ^ v2)) ;;
+	CMP) res=$((v1 - v2)) ; setaf2 $v1 $v2 0 ; dest="" ; ncf=2 ;;
+
 	INC) res=$((v1 + 1)) ; v2=1 ; ncf=3 ;;
 	DEC) res=$((v1 - 1)) ; v2=1 ; ncf=4 ;;
-	NEG) res=$((0 - v1)) v2=$v1 ; v1=0; ncf=2 ;;
+	NEG) res=$((0 - v1)) v2=$v1 ; v1=0; setaf2 $v1 $v2 0 ; ncf=2 ;;
 	NOT) res=$((~v1)) ; ncf=6 ;; 
-	AND) res=$((v1 & v2)) ;;
-	XOR) res=$((v1 ^ v2)) ;;
-	OR)  res=$((v1 | v2)) ;;
 	TEST) dest="" ; res=$((v1 & v2)) ;;
-	CMP)  dest="" ; res=$((v1 - v2)) ; ncf=2 ;;
     esac
     res=$((res & smask))
     execset "$dest" "$res"
@@ -1392,25 +1398,23 @@ aluop() {
     case $ncf in
 	1)
 	    # add/adc
-	    setaf $v1 $v2
 	    addof $res $v1 $v2 $sgn
 	    setcf $res $v1 $v2 $sgn
 	    ;;
 	2)
 	    # sub/sbb/neg
-	    AF=$(((v1 & 0xF) < (v2 & 0xF)))
 	    OF=$((((v1 ^ v2) & (v1 ^ res) & sgn) != 0))
 	    CF=$(((((~v1 & v2) | ((~v1 | v2) & res)) & sgn) != 0))
 	    ;;
 	3)
 	    # inc only sets OF
 	    addof $res $v1 $v2 $sgn
-	    setaf $v1 0x1
+	    setaf $v1 $v2 0
 	    ;;
 	4)
 	    # dec only sets OF
 	    OF=$((((v1 ^ v2) & (v1 ^ res) & sgn) != 0))
-	    AF=$(((v1 & 0xF) == 0x0))
+	    setaf2 $v1 $v2 0
 	    ;;
 	6)
 	    # not doesn't set flags
@@ -1449,10 +1453,12 @@ mulfn() {
 	printf "loop %x %x %x\n" $PROD $TMPA $TMPB
 	if [[ $((TMPB & 1)) != 0 ]] ; then
 	    local R=$((PROD + TMPA))
-	    local A=$(((PROD & 0xF) + (TMPA & 0xF)))
+#	    local A=$(((PROD & 0xF) + (TMPA & 0xF)))
+	    addof $R $PROD $TMPA
+	    setaf $PROD $TMPA 0
 	    setszp $R 0xffff
 	    CF=$((R > 0xffff))
-	    AF=$((A > 0xF))
+#	    AF=$((A > 0xF))
 	    printf " PROD %x %x %x\n" $((R & 0xF)) $((TMPA & 0xF)) $A
 	    
 	    PROD=$((R & 0xffff))
@@ -1464,6 +1470,15 @@ mulfn() {
     CF=$(((PROD & 0xFF00) != 0))
     OF=$CF
     printf -v "$out" "0x%x" $PROD
+}
+
+divfn() {
+    local d=$1 r=$2 v1=$3 v2=$4 mask=$5
+
+    if [[ $v2 -eq 0 ]] ; then
+	vector 0 $(getreg IP 0xffff)
+	return
+    fi
 }
 
 # Execute an opcode
@@ -2003,7 +2018,7 @@ execop() {
 	    res=$((ores + al))
 	    addof $res $ores $al 0x80
 	    setcf $res $ores $al 0x80
-	    setaf $ores $al
+	    setaf $ores $al 0
 	    setszp $res 0xff
 	    setreg 0 $((res & 0xFF)) 0xffff
 	    ;;
