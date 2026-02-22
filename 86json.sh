@@ -76,7 +76,7 @@ check() {
 		fi
 		;;
 	    *)
-		printf "mismatch: $key $index %x [got: $rv %x]\n" $value $rv
+		printf "mismatch: $key[%x] $index %x [got: $rv %x]\n" $((key+0)) $value $rv
 		error=1
 		;;
 	esac
@@ -115,7 +115,7 @@ parsemem() {
 	if [ $ini -eq 1 ]; then
 	    X86_MEM[$addr]=$val
 	elif [ "$mv" -ne "$val" ]; then
-	    printf "mismatch: mem $addr %x [got: %x]\n" $val $mv
+	    printf "mismatch: mem $addr[%x] %x [got: %x]\n" $addr $val $mv
 	    error=1
 	fi
     done < .input.$$
@@ -217,7 +217,7 @@ loadtsv() {
 			00) echo "ff:DV" ;;
 			24) echo "ff:UD" ;;
 		    esac
-		    printf "$key <- %x [${X86_MEM[$key]}]\n" $val
+		    printf "$key[%x] <- %x [${X86_MEM[$key]}]\n" $key $val
 		fi
 		;;
 	    EXEC)
@@ -232,10 +232,10 @@ loadtsv() {
 		    mv=0
 		fi
 		if [ $verbose != 0 ] ; then
-		    printf "$key <- %x [${X86_MEM[$key]}]\n" $val
+		    printf "$key[%x] <- %x [${X86_MEM[$key]}]\n" $key $val
 		fi
 		if [ "$mv" -ne "$val" ]; then
-		    printf "mismatch: mem $key %x [got: %x]\n" $val $mv
+		    printf "mismatch: mem $key[%x] %x [got: %x]\n" $key $val $mv
 		    error=1
 		fi
 		;;

@@ -40,6 +40,7 @@ tsv_seg=0
 tsv_off=0
 tsv_lin=0
 
+f1=0
 fault=99
 lock=0
 verbose=0
@@ -123,6 +124,7 @@ setreg() {
     local num=$1 val="$2" mask="$3" lbl=$4
     if [[ -z $mask ]] ; then
 	mask=0xffffffff
+	printf "setreg fail\n"
 	exit 1
     fi
     local xnum=$num
@@ -568,6 +570,11 @@ grpop() {
 #  FE.6 = push
 #  FE.7 = push
 #  FF.7 = push
+
+# F6.4 = mul ax al eb
+# F6.5 = imul ax al eb
+# F7.4 = mul vdax vax ev
+# F7.5 = imul vdax vax ev
 eregs=(EAX ECX EDX EBX ESP EBP ESI EDI)
 grpa=(MOV UD UD UD UD UD UD UD)
 grp1=(ADD OR ADC SBB AND SUB XOR CMP)
@@ -747,8 +754,8 @@ add286() {
 # 386-specific opcodes
 add386() {
     addr_mask=0xffffff
-    setop 0x60 PUSHA
-    setop 0x61 POPA
+    setop 0x60 PUSHA __ __ NO64
+    setop 0x61 POPA __ __ NO64
     setop 0x62 BOUND Gv Mp MRR
     setop 0x63 ARPL Ew Rw MRR
     setop 0x64 SEG rFS
@@ -870,12 +877,6 @@ add8() {
 	v2=$(((v2 - 256) & 0xffff))
     fi
     echo $(((v1 + v2) & 0xffff))
-}
-
-add16() {
-    local v1=$1
-    local v2=$2
-    echo $(((v1 + v2) & 0xFFFF))
 }
 
 # Create immediate
@@ -1036,10 +1037,12 @@ mkea() {
     echo "base offset: $off"
     if [ $mm -eq 1 ] ; then
 	fetch8 IR
-	off=$(add8 $off $IR)
+	signex IR $IR 0xff 0x80
+	off=$(((off + IR) & 0xFFFF))
     elif [ $mm -eq 2 ] ; then
 	fetch16 IR
-	off=$(add16 $off $IR)
+	signex IR $IR 0xffff 0x8000
+	off=$(((off + IR) & 0xFFFF))
     fi
     
     # Segment override
@@ -1309,6 +1312,7 @@ shlop() {
     local out=$1 v=$2 msb=$3 lsb=$4
     CF=$(((v & msb) != 0))
     printf -v "$out" "0x%x" $(((v << 1) | lsb))
+    (( OF = CF ^ ((out & msb) != 0) ))
 }
 
 # Does a shift right, CF=lsb, shift in msb
@@ -1346,7 +1350,6 @@ shiftop() {
 	case $opfn in
 	    ROL)
 		shlop res $res $msb $(((res & msb) != 0))
-		(( OF = CF ^ ((res & msb) != 0) ))
 		;;
 	    ROR)
 		shrop res $res $(((res & 1) * msb)) 0x1
@@ -1354,7 +1357,6 @@ shiftop() {
 		;;
 	    RCL)
 		shlop res $res $msb $CF
-		(( OF = CF ^ ((res & msb) != 0) ))
 		;;
 	    RCR)
 		(( OF = CF ^ ((res & msb) != 0) ))
@@ -1364,7 +1366,6 @@ shiftop() {
 		# shl ok
 		shlop res $res $msb 0
 		(( AF = ((res & 0x10) != 0 )))
-		(( OF = CF ^ ((res & msb) != 0) ))
 		;;
 	    SHR)
 		# shr ok
@@ -1400,6 +1401,7 @@ shiftop() {
     return
 }
 
+# BT/BTC/BTR/BTS
 bitop() {
     local opfn=$1
     local s1="$2" s2="$3"
@@ -1412,11 +1414,9 @@ bitop() {
 	case $osize in
 	    0xffff)
 		signex bitm $bit 0xffff 0x8000
-		printf "bit is %x\n" $bitm
 		off1=$((2*(bitm >> 4)))
 		off2=${m[3]}
 		off=$((off1+off2))
-		printf "off is %x %x %x\n" $off1 $off2 $((off + m[2]*16))
 		;;
 	    0xffffffff)
 		signex bitm $bit 0xffffffff 0x80000000
@@ -1438,17 +1438,21 @@ bitop() {
     bit=$((1 << bit))
     case $opfn in
 	BT)
+	    # Test
 	    CF=$(((B0 & bit) != 0))
 	    ;;
 	BTS)
+	    # Set
 	    CF=$(((B0 & bit) != 0))
 	    execset "$s1" $((B0 | bit))
 	    ;;
 	BTC)
+	    # Complement
 	    CF=$(((B0 & bit) != 0))
 	    execset "$s1" $((B0 ^ bit))
 	    ;;
 	BTR)
+	    # Reset
 	    CF=$(((B0 & bit) != 0))
 	    execset "$s1" $((B0 & ~bit))
 	    ;;
@@ -1532,6 +1536,7 @@ aluop() {
     PF=$(parity $res)
 }
 
+# sign extend value
 signex() {
     local out=$1 v=$2 mask=$3 sgn=$4
     v=$((v & mask))
@@ -1542,44 +1547,34 @@ signex() {
 }
 
 mulfn() {
-    local out=$1 TMPA=$2 TMPB=$3 opgrp
+    local out=$1 TMPA=$2 TMPB=$3 msk=$4
     local PROD=0
 
-    CF=0
-    PF=0
-    SF=0
-    ZF=0
     # Loop multiply algorithm
     while [[ $TMPB -ne 0 ]]; do
 	printf "loop %x %x %x\n" $PROD $TMPA $TMPB
 	if [[ $((TMPB & 1)) != 0 ]] ; then
 	    local R=$((PROD + TMPA))
-#	    local A=$(((PROD & 0xF) + (TMPA & 0xF)))
-	    addof $R $PROD $TMPA
-	    setaf $PROD $TMPA 0
-	    setszp $R 0xffff
-	    CF=$((R > 0xffff))
-#	    AF=$((A > 0xF))
-	    printf " PROD %x %x %x\n" $((R & 0xF)) $((TMPA & 0xF)) $A
-	    
-	    PROD=$((R & 0xffff))
+	    printf " p:%.8x a:%.8x r:%.8x\n" $PROD $TMPA $R
+	    PROD=$((R & msk))
 	fi
-	TMPA=$(((TMPA << 1) & 0xffff))
+	TMPA=$(((TMPA << 1) & msk))
 	TMPB=$((TMPB >> 1))
     done
     printf "mul %x %x -> %x\n" $2 $3 $PROD
-    CF=$(((PROD & 0xFF00) != 0))
-    OF=$CF
+    (( f1 )) && PROD=$((-PROD))
     printf -v "$out" "0x%x" $PROD
 }
 
 divfn() {
-    local d=$1 r=$2 v1=$3 v2=$4 mask=$5
+    local quot=$1 rem=$2 v1=$3 v2=$4 mask=$5
 
     if [[ $v2 -eq 0 ]] ; then
 	vector 0 $(getreg IP 0xffff)
 	return
     fi
+    printf -v quot "0x%x" $((v1 / v2))
+    printf -v rem "0x%x" $((v1 % v2))
 }
 
 # Execute an opcode
@@ -1691,8 +1686,6 @@ execop() {
 		# imul Gv = Gv * Ev
 		execval v1 "$s1"
 		execval v2 "$s2"
-		signex v1 "$v1" $osize $sgn
-		signex v2 "$v2" $osize $sgn
 		printf "imul3 %x %x %x %x\n" $v1 $v2 $osize $sgn
 		res=$((v1 * v2))
 		execset "$s1" "$res"
@@ -1721,15 +1714,24 @@ execop() {
 		# mul/imul ax = al * Eb
 		v1=$(getreg 0 0xff)
 		execval v2 "$s1"
-		signex v1 "$v1" 0xff 0x80
-		signex v2 "$v2" 0xff 0x80
-		res=$((v1 * v2))
-		printf "@@F6 $opfn %x %x -> %x\n" $v1 $v2 $res
+		if (( (v1 & 0x80) != 0 )) ;then
+		    signex sv $v1 0xff 0x80
+		    v1=$((0x100 - v1))
+		    printf "signex: %x %x\n" $sv $v1
+		    f1=$((f1 ^ 1))
+		fi
+		if (( (v2 & 0x80) != 0 )) ; then
+		    signex sv $v2 0xff 0x80
+		    v2=$((0x100 - v2))
+		    printf "signex: %x %x\n" $sv $v2
+		    f1=$((f1 ^ 1))
+		fi
+		mulfn res $v1 $v2 0xffff
 		setreg 0 $res 0xffff
-		ZF=$(((res & 0xFFFF) == 0))
-		SF=$(((res & 0x8000) != 0))
-		CF=$(( $res > 0xFF ))
-		OF=CF
+
+		rh=$((res >> 8))
+		CF=$((rh != 0))
+		OF=$CF
 	    fi
 	    if (( $opgrp == 0xf700 )) ; then
 		# mul/imul vdx:vax = vax * Ev
@@ -1737,24 +1739,6 @@ execop() {
 		execval v2 "$s1"
 		signex v1 "$v1" 0xffff 0x8000
 		signex v2 "$v2" 0xffff 0x8000
-		res=$((v1 * v2))
-		printf "@@F7 $opfn %x %x -> %x\n" $v1 $v2 $res
-		setreg 0 $res $osize
-		ZF=$(((res & osize) == 0))
-		case $osize in
-		    0xffff)
-			setreg 2 $((res >> 16)) 0xffff
-			SF=$(((res & 0x80000000) != 0))
-			CF=$(( $res > 0xFFFF ))
-			OF=CF
-			;;
-		    0xffffffff)
-			setreg 2 $((res >> 32)) $osize
-			SF=$(((res & 0x8000000000000000) != 0))
-			CF=$(( $res > 0xFFFFFFFF ))
-			OF=CF
-			;;
-		esac
 	    fi
 	    ;;
 	MUL)
@@ -1763,20 +1747,41 @@ execop() {
 		# mul/imul ax = al * Eb
 		v1=$(getreg 0 0xff)
 		execval v2 "$s1"
-		mulfn res $v1 $v2 0xff
+		# check negate
+		(( -n "$rep" )) && f1=1
+		mulfn res $v1 $v2 0xffff
 		setreg 0 $res 0xffff
+
+		rh=$((res >> 8))
+		CF=$((rh != 0))
+		OF=$CF
+		AF=0
+		setszp $rh 0xff
 	    fi
 	    if (( $opgrp == 0xf700 )) ; then
 		# mul/imul vdx:vax = vax * Ev
 		v1=$(getreg 0 $osize)
 		execval v2 "$s1"
-		mulfn res $v1 $v2 $osize
+		# check negate
+		(( -n "$rep" )) && f1=1
 		case $osize in
 		    0xffff)
-			setreg 0 $res 0xffff
-			setreg 2 $((res >> 16)) 0xffff
+			mulfn res $v1 $v2 0xffffffff
+			setreg 0 $res $osize
+			setreg 2 $((res >> 16)) $osize
+			rh=$((res >> 16))
+			;;
+		    0xffffffff)
+			mulfn res $v1 $v2 0xffffffffffffffff
+			setreg 0 res $osize
+			setreg 2 $((res >> 32)) $osize
+			rh=$((res >> 32))
 			;;
 		esac
+		CF=$((rh != 0))
+		OF=$CF
+		AF=0
+		setszp $rh $osize
 	    fi
 	    printf "mul [%x] [%x] -> %x\n" $v1 $v2 $res
 	    ;;
@@ -1786,10 +1791,9 @@ execop() {
 		# AH = AX % Eb
 		# AL = AX / Eb
 		local ax=$(getreg AX 0xffff)
-		local res=$((ax / v2))
-		setreg SP $((ax % v2)) 0xff
-		setreg 0 $res 0xff
-		echo "div"
+		divfn quot rem $ax $v2 0xff
+		setreg 0 "$quot" 0xff
+		setreg 4 "$rem"  0xff
 	    fi
 	    if [[ $opgrp -eq 0xF700 ]]; then
 		# DX = DX:AX % Ev
