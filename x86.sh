@@ -1561,8 +1561,13 @@ mulfn() {
 	TMPA=$(((TMPA << 1) & msk))
 	TMPB=$((TMPB >> 1))
     done
-    printf "mul %x %x -> %x\n" $2 $3 $PROD
-    (( f1 )) && PROD=$((-PROD))
+    printf "mul %x %x -> %x [$f1]\n" $2 $3 $PROD
+    # negate if f1 flag
+    if (( f1 != 0 )) ; then
+	PROD=$((~PROD + 1))
+	printf "negate result %x\n" $PROD
+	f1=0
+    fi
     printf -v "$out" "0x%x" $PROD
 }
 
@@ -1575,6 +1580,27 @@ divfn() {
     fi
     printf -v quot "0x%x" $((v1 / v2))
     printf -v rem "0x%x" $((v1 % v2))
+}
+
+setneg() {
+    local out=$1 v=$2 msk=$3 lbl=$4
+    
+    case $msk in
+	0xff)
+	    if (((v & 0x80) != 0 )) ; then
+		printf "setneg: %x [%x] $lbl\n" $v $((0x100 - v))
+		printf -v "$out" "0x%x" $((0x100 - v))
+		f1=$((f1 ^ 1))
+	    fi
+	    ;;
+	0xffff)
+	    if (((v & 0x8000) != 0 )); then
+		printf "setneg: %x [%x] $lbl\n" $v $((0x10000 - v))
+		printf -v "$out" "0x%x" $((0x10000 - v))
+		f1=$((f1 ^ 1))
+	    fi
+	    ;;
+    esac
 }
 
 # Execute an opcode
@@ -1714,31 +1740,41 @@ execop() {
 		# mul/imul ax = al * Eb
 		v1=$(getreg 0 0xff)
 		execval v2 "$s1"
-		if (( (v1 & 0x80) != 0 )) ;then
-		    signex sv $v1 0xff 0x80
-		    v1=$((0x100 - v1))
-		    printf "signex: %x %x\n" $sv $v1
-		    f1=$((f1 ^ 1))
-		fi
-		if (( (v2 & 0x80) != 0 )) ; then
-		    signex sv $v2 0xff 0x80
-		    v2=$((0x100 - v2))
-		    printf "signex: %x %x\n" $sv $v2
-		    f1=$((f1 ^ 1))
-		fi
+		setneg v1 $v1 0xff "v1"
+		setneg v2 $v2 0xff "v2"
 		mulfn res $v1 $v2 0xffff
 		setreg 0 $res 0xffff
 
+		cy=$(((res & 0x80) != 0))
 		rh=$((res >> 8))
+		printf "cy is %d\n" $cy
+		setaf $rh $cy 0
+
+		rh=$((rh + cy))
 		CF=$((rh != 0))
 		OF=$CF
+		setszp $rh 0xff
 	    fi
 	    if (( $opgrp == 0xf700 )) ; then
 		# mul/imul vdx:vax = vax * Ev
 		v1=$(getreg 0 $osize)
 		execval v2 "$s1"
-		signex v1 "$v1" 0xffff 0x8000
-		signex v2 "$v2" 0xffff 0x8000
+		setneg v1 $v1 0xffff "v1"
+		setneg v2 $v2 0xffff "v2"
+		mulfn res $v1 $v2 0xffffffff
+
+		rh=$((res >> 16))
+		setreg 0 $res 0xffff "imul.ax"
+		setreg 2 $rh 0xffff "imul.dx"
+
+		cy=$(((res & 0x8000) != 0))
+		printf "cy is %d\n" $cy
+		setaf $rh $cy 0
+
+		rh=$((rh + cy))
+		CF=$((rh != 0))
+		OF=$CF
+		setszp $rh 0xffff
 	    fi
 	    ;;
 	MUL)
